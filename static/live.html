@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="live.page.title">Agent 会话总览 · ClawView Live</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape shape-a"></div>
+    <div class="bg-shape shape-b"></div>
+
+    <header class="topbar live-topbar">
+      <div>
+        <h1 data-i18n="live.header.title">Agent 会话总览 · 增量追踪</h1>
+        <p id="live-status" data-i18n="live.status.waiting">等待启动...</p>
+      </div>
+      <div class="controls">
+        <label data-i18n="live.window.label">窗口</label>
+        <select id="live-minutes">
+          <option value="5" data-i18n="live.window.5m">5 分钟</option>
+          <option value="10" selected data-i18n="live.window.10m">10 分钟</option>
+          <option value="30" data-i18n="live.window.30m">30 分钟</option>
+          <option value="60" data-i18n="live.window.60m">60 分钟</option>
+        </select>
+        <label data-i18n="live.polling.label">轮询</label>
+        <select id="live-interval">
+          <option value="2000">2s</option>
+          <option value="5000" selected>5s</option>
+          <option value="10000">10s</option>
+        </select>
+        <select id="live-lang-select" title="语言 / Language" data-i18n-title="language.select.title">
+          <option value="zh-CN" data-i18n="language.zh">中文</option>
+          <option value="en-US" data-i18n="language.en">English</option>
+        </select>
+        <button id="live-start" data-i18n="button.start">开始</button>
+        <button id="live-stop" data-i18n="button.pause">暂停</button>
+        <button id="live-clear" data-i18n="button.clear">清空</button>
+        <a class="link-btn" href="/" data-i18n="live.back.main">返回主面板</a>
+      </div>
+    </header>
+
+    <main class="live-layout">
+      <section class="panel live-feed reveal">
+        <div class="panel-head">
+          <h2 data-i18n="live.feed.title">新增消息流</h2>
+          <span id="live-count">0</span>
+        </div>
+        <div id="live-list" class="live-list"></div>
+      </section>
+    </main>
+
+    <script src="/live.js"></script>
+  </body>
+</html>

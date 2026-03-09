@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="page.title">Agent 会话总览 · ClawView</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape shape-a"></div>
+    <div class="bg-shape shape-b"></div>
+
+    <header class="topbar">
+      <div>
+        <h1 data-i18n="header.title">Agent 会话总览</h1>
+        <p id="state-dir" data-i18n="state.loading">Loading...</p>
+      </div>
+      <div class="controls">
+        <input
+          id="search-input"
+          type="search"
+          placeholder="过滤 session key / channel / model"
+          data-i18n-placeholder="search.placeholder"
+        />
+        <select id="agent-filter">
+          <option value="" data-i18n="agents.all">全部 agents</option>
+        </select>
+        <label class="inline-toggle">
+          <input id="auto-refresh" type="checkbox" checked />
+          <span data-i18n="auto.refresh">自动刷新</span>
+        </label>
+        <select id="refresh-interval" title="刷新间隔" data-i18n-title="refresh.interval.title">
+          <option value="5000">5s</option>
+          <option value="10000" selected>10s</option>
+          <option value="15000">15s</option>
+          <option value="30000">30s</option>
+        </select>
+        <select id="lang-select" title="语言 / Language" data-i18n-title="language.select.title">
+          <option value="zh-CN" data-i18n="language.zh">中文</option>
+          <option value="en-US" data-i18n="language.en">English</option>
+        </select>
+        <button id="global-search-open-btn" data-i18n="button.global.search">全文检索</button>
+        <button id="refresh-btn" data-i18n="button.refresh.now">立即刷新</button>
+        <a class="link-btn" href="/live.html" target="_blank" rel="noopener" data-i18n="link.live.view">增量追踪</a>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel sidebar reveal">
+        <div class="panel-head">
+          <h2 data-i18n="panel.sessions">Sessions</h2>
+          <span id="session-count">0</span>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </section>
+
+      <section class="main-col">
+        <section class="panel stats reveal delay-1">
+          <div class="stats-cards">
+            <article class="card">
+              <h3 data-i18n="stats.total.sessions">总 Sessions</h3>
+              <p id="total-sessions">-</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="stats.total.messages">总消息数</h3>
+              <p id="total-messages">-</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="stats.total.tokens">总 Tokens</h3>
+              <p id="total-tokens">-</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="stats.active.range">活跃区间</h3>
+              <p id="active-range">-</p>
+            </article>
+          </div>
+
+          <div class="viz-grid">
+            <section class="viz-box">
+              <h3 data-i18n="viz.agent.messages">Agent 消息量</h3>
+              <div id="agent-bars" class="bars"></div>
+            </section>
+
+            <section class="viz-box">
+              <h3 data-i18n="viz.active.hours">活跃时段 (0-23h)</h3>
+              <div id="hour-bars" class="bars hour-bars"></div>
+            </section>
+
+            <section class="viz-box token-box">
+              <h3 data-i18n="viz.token.trend">Token 趋势</h3>
+              <svg id="token-trend" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+              <div id="trend-labels" class="trend-labels"></div>
+              <div id="trend-metrics" class="trend-metrics"></div>
+            </section>
+
+            <section class="viz-box mention-box">
+              <h3 data-i18n="viz.mention.graph">Bot 提及关系图 (可拖拽/点击)</h3>
+              <div class="mention-stage">
+                <svg id="mention-network" viewBox="0 0 640 280" preserveAspectRatio="xMidYMid meet"></svg>
+                <div id="mention-details" class="mention-details"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div id="session-modal" class="session-modal" aria-hidden="true">
+      <div
+        class="session-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Session Chat Viewer"
+        data-i18n-aria-label="session.modal.aria"
+      >
+        <div class="session-modal-head">
+          <div class="session-meta-wrap">
+            <div id="session-modal-meta" class="session-meta" data-i18n="session.modal.placeholder">
+              选择左侧一个 session 查看聊天记录
+            </div>
+            <div class="modal-view-controls">
+              <label class="inline-toggle compact">
+                <input id="view-only-dialogue" type="checkbox" checked />
+                <span data-i18n="view.only.dialogue">仅看对话</span>
+              </label>
+              <label class="inline-toggle compact">
+                <input id="view-show-tools" type="checkbox" checked />
+                <span data-i18n="view.show.tools">显示工具</span>
+              </label>
+              <label class="inline-toggle compact">
+                <input id="view-show-meta" type="checkbox" checked />
+                <span data-i18n="view.show.meta">显示元信息</span>
+              </label>
+            </div>
+          </div>
+          <div class="meta-actions">
+            <button id="export-json-btn" disabled data-i18n="button.export.json">导出 JSON</button>
+            <button id="export-md-btn" disabled data-i18n="button.export.md">导出 Markdown</button>
+            <button id="session-modal-close" class="ghost-btn" data-i18n="button.close">关闭</button>
+          </div>
+        </div>
+        <div id="session-modal-messages" class="message-list"></div>
+      </div>
+    </div>
+
+    <div id="search-modal" class="search-modal" aria-hidden="true">
+      <div
+        class="search-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Global Search"
+        data-i18n-aria-label="search.modal.aria"
+      >
+        <div class="search-modal-head">
+          <h2 data-i18n="search.modal.title">跨会话全文检索</h2>
+          <button id="search-modal-close" class="ghost-btn" data-i18n="button.close">关闭</button>
+        </div>
+        <div class="search-controls">
+          <input
+            id="global-search-input"
+            type="search"
+            placeholder="输入关键词，例如: pmbot 需求评审"
+            data-i18n-placeholder="search.global.placeholder"
+          />
+          <button id="global-search-btn" data-i18n="button.search">搜索</button>
+          <button id="global-search-clear-btn" data-i18n="button.clear">清空</button>
+        </div>
+        <div class="search-modal-meta">
+          <span data-i18n="search.result.count.label.prefix">结果数:</span> <span id="search-result-count">0</span>
+        </div>
+        <div id="search-results" class="search-results"></div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
