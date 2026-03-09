@@ -11,37 +11,54 @@
     <div class="bg-shape shape-b"></div>
 
     <header class="topbar">
-      <div>
+      <div class="topbar-title">
         <h1 data-i18n="header.title">Agent 会话总览</h1>
         <p id="state-dir" data-i18n="state.loading">Loading...</p>
       </div>
-      <div class="controls">
-        <input
-          id="search-input"
-          type="search"
-          placeholder="过滤 session key / channel / model"
-          data-i18n-placeholder="search.placeholder"
-        />
-        <select id="agent-filter">
-          <option value="" data-i18n="agents.all">全部 agents</option>
-        </select>
-        <label class="inline-toggle">
-          <input id="auto-refresh" type="checkbox" checked />
-          <span data-i18n="auto.refresh">自动刷新</span>
-        </label>
-        <select id="refresh-interval" title="刷新间隔" data-i18n-title="refresh.interval.title">
-          <option value="5000">5s</option>
-          <option value="10000" selected>10s</option>
-          <option value="15000">15s</option>
-          <option value="30000">30s</option>
-        </select>
-        <select id="lang-select" title="语言 / Language" data-i18n-title="language.select.title">
-          <option value="zh-CN" data-i18n="language.zh">中文</option>
-          <option value="en-US" data-i18n="language.en">English</option>
-        </select>
-        <button id="global-search-open-btn" data-i18n="button.global.search">全文检索</button>
-        <button id="refresh-btn" data-i18n="button.refresh.now">立即刷新</button>
-        <a class="link-btn" href="/live.html" target="_blank" rel="noopener" data-i18n="link.live.view">增量追踪</a>
+      <div class="controls controls-dashboard">
+        <div class="controls-primary">
+          <input
+            id="search-input"
+            type="search"
+            placeholder="过滤 session key / channel / model"
+            data-i18n-placeholder="search.placeholder"
+          />
+          <select id="agent-filter">
+            <option value="" data-i18n="agents.all">全部 agents</option>
+          </select>
+        </div>
+        <div class="controls-secondary">
+          <button id="global-search-open-btn" data-i18n="button.global.search">全文检索</button>
+          <details class="topbar-menu">
+            <summary data-i18n="menu.more">更多</summary>
+            <div class="topbar-menu-panel">
+              <label class="inline-toggle menu-item">
+                <input id="auto-refresh" type="checkbox" checked />
+                <span data-i18n="auto.refresh">自动刷新</span>
+              </label>
+              <label class="menu-field">
+                <span data-i18n="refresh.interval.title">刷新间隔</span>
+                <select id="refresh-interval" title="刷新间隔" data-i18n-title="refresh.interval.title">
+                  <option value="5000">5s</option>
+                  <option value="10000" selected>10s</option>
+                  <option value="15000">15s</option>
+                  <option value="30000">30s</option>
+                </select>
+              </label>
+              <label class="menu-field">
+                <span data-i18n="language.select.title">语言 / Language</span>
+                <select id="lang-select" title="语言 / Language" data-i18n-title="language.select.title">
+                  <option value="zh-CN" data-i18n="language.zh">中文</option>
+                  <option value="en-US" data-i18n="language.en">English</option>
+                </select>
+              </label>
+              <button id="refresh-btn" data-i18n="button.refresh.now">立即刷新</button>
+              <a class="link-btn menu-link" href="/live.html" target="_blank" rel="noopener" data-i18n="link.live.view"
+                >增量追踪</a
+              >
+            </div>
+          </details>
+        </div>
       </div>
     </header>
 

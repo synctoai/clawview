@@ -95,6 +95,7 @@ const I18N = {
     "language.zh": "中文",
     "language.en": "English",
     "button.global.search": "全文检索",
+    "menu.more": "更多",
     "button.refresh.now": "立即刷新",
     "button.export.json": "导出 JSON",
     "button.export.md": "导出 Markdown",
@@ -183,6 +184,7 @@ const I18N = {
     "language.zh": "中文",
     "language.en": "English",
     "button.global.search": "Global Search",
+    "menu.more": "More",
     "button.refresh.now": "Refresh",
     "button.export.json": "Export JSON",
     "button.export.md": "Export Markdown",
@@ -1769,6 +1771,13 @@ function setupAutoRefresh() {
   }, interval);
 }
 
+function applyInitialOpenState() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("open") === "search") {
+    openSearchModal();
+  }
+}
+
 async function refreshAll(delta = false) {
   if (state.refreshing) return;
   state.refreshing = true;
@@ -1853,4 +1862,5 @@ initLanguage();
 syncMessageViewControls();
 setupAutoRefresh();
 renderSearchResults();
+applyInitialOpenState();
 refreshAll(false);
