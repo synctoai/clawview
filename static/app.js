@@ -826,6 +826,33 @@ function groupMessagesForDisplay(rows) {
   return out;
 }
 
+function orderMessagesNewestFirst(displayRows) {
+  const turns = [];
+  let currentTurn = [];
+
+  displayRows.forEach((msg) => {
+    if (msg.role === "user") {
+      if (currentTurn.length) {
+        turns.push(currentTurn);
+      }
+      currentTurn = [msg];
+      return;
+    }
+
+    if (!currentTurn.length) {
+      turns.push([msg]);
+      return;
+    }
+    currentTurn.push(msg);
+  });
+
+  if (currentTurn.length) {
+    turns.push(currentTurn);
+  }
+
+  return turns.reverse().flat();
+}
+
 function openSessionModal() {
   if (state.modalOpen) return;
   state.modalOpen = true;
@@ -1056,7 +1083,7 @@ function renderMessages(payload, jumpMessageId) {
   renderSessionMeta(payload);
 
   const rows = payload.messages || [];
-  const displayRows = groupMessagesForDisplay(rows);
+  const displayRows = orderMessagesNewestFirst(groupMessagesForDisplay(rows));
   if (!rows.length) {
     el.sessionModalMessages.innerHTML = `<p class="empty">${escapeHtml(t("session.empty.no_messages"))}</p>`;
     return;
