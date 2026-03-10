@@ -6,6 +6,8 @@
 
 `ClawView` 是一个用于 OpenClaw 的本地会话可视化工具，可一键启动并在浏览器查看全部 sessions 聊天记录。
 
+![Demo](./assets/Demo.png)
+
 ### 功能
 
 - 聚合 `~/.openclaw/agents/*/sessions/sessions.json` 会话数据
