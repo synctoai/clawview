@@ -94,8 +94,8 @@ const DEFAULT_LANG = "zh-CN";
 const LANGUAGE_STORAGE_KEY = "clawview_lang";
 const I18N = {
   "zh-CN": {
-    "page.title": "Agent 会话总览 · ClawView",
-    "header.title": "Agent 会话总览",
+    "page.title": "OpenClaw Agent 会话总览 · ClawView",
+    "header.title": "OpenClaw Agent 会话总览",
     "state.loading": "加载中...",
     "search.placeholder": "过滤 session key / channel / model",
     "agents.all": "全部 agents",
@@ -193,8 +193,8 @@ const I18N = {
     "session.badge.new": "NEW",
   },
   "en-US": {
-    "page.title": "Agent Session Overview · ClawView",
-    "header.title": "Agent Session Overview",
+    "page.title": "OpenClaw Agent Session Overview · ClawView",
+    "header.title": "OpenClaw Agent Session Overview",
     "state.loading": "Loading...",
     "search.placeholder": "Filter by session key / channel / model",
     "agents.all": "All agents",

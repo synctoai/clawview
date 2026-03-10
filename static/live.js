@@ -23,8 +23,8 @@ const DEFAULT_LANG = "zh-CN";
 const LANGUAGE_STORAGE_KEY = "clawview_lang";
 const I18N = {
   "zh-CN": {
-    "live.page.title": "Agent 会话总览 · ClawView Live",
-    "live.header.title": "Agent 会话总览 · 增量追踪",
+    "live.page.title": "OpenClaw Agent 会话总览 · ClawView Live",
+    "live.header.title": "OpenClaw Agent 会话总览 · 增量追踪",
     "live.status.waiting": "等待启动...",
     "live.window.label": "窗口",
     "live.window.5m": "5 分钟",
@@ -50,8 +50,8 @@ const I18N = {
     "live.cleared": "已清空",
   },
   "en-US": {
-    "live.page.title": "Agent Session Overview · ClawView Live",
-    "live.header.title": "Agent Session Overview · Live Stream",
+    "live.page.title": "OpenClaw Agent Session Overview · ClawView Live",
+    "live.header.title": "OpenClaw Agent Session Overview · Live Stream",
     "live.status.waiting": "Waiting to start...",
     "live.window.label": "Window",
     "live.window.5m": "5 min",
