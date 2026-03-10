@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import re
+import subprocess
 import threading
 import time
+import uuid
 import webbrowser
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -28,6 +31,27 @@ def parse_args() -> argparse.Namespace:
         "--open",
         action="store_true",
         help="Open browser automatically after server starts",
+    )
+    parser.add_argument(
+        "--gateway-url",
+        default=os.environ.get("OPENCLAW_GATEWAY_URL", ""),
+        help="Gateway WebSocket URL (optional, defaults to CLI config)",
+    )
+    parser.add_argument(
+        "--gateway-token",
+        default=os.environ.get("OPENCLAW_GATEWAY_TOKEN", ""),
+        help="Gateway token (optional)",
+    )
+    parser.add_argument(
+        "--gateway-password",
+        default=os.environ.get("OPENCLAW_GATEWAY_PASSWORD", ""),
+        help="Gateway password (optional)",
+    )
+    parser.add_argument(
+        "--gateway-timeout-ms",
+        type=int,
+        default=15000,
+        help="Gateway RPC timeout in milliseconds (default: 15000)",
     )
     return parser.parse_args()
 
@@ -751,6 +775,10 @@ def _to_export_markdown(session: dict[str, Any], messages: list[dict[str, Any]])
 
 class ClawViewHandler(SimpleHTTPRequestHandler):
     state_dir: Path = Path.home() / ".openclaw"
+    gateway_url: str = ""
+    gateway_token: str = ""
+    gateway_password: str = ""
+    gateway_timeout_ms: int = 15000
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         static_dir = Path(__file__).resolve().parent / "static"
@@ -784,6 +812,65 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
 
     def _find_session(self, sessions: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
         return next((s for s in sessions if s.get("key") == key), None)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        content_length = _safe_int(self.headers.get("Content-Length"), 0)
+        if content_length <= 0:
+            return {}
+        raw = self.rfile.read(content_length)
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON body: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("JSON body must be an object")
+        return data
+
+    def _gateway_call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        timeout_ms = max(1000, _safe_int(self.gateway_timeout_ms, 15000))
+        cmd = [
+            "openclaw",
+            "--no-color",
+            "gateway",
+            "call",
+            method,
+            "--json",
+            "--params",
+            json.dumps(params, ensure_ascii=False),
+            "--timeout",
+            str(timeout_ms),
+        ]
+        if self.gateway_url:
+            cmd.extend(["--url", self.gateway_url])
+        if self.gateway_token:
+            cmd.extend(["--token", self.gateway_token])
+        if self.gateway_password:
+            cmd.extend(["--password", self.gateway_password])
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "Gateway call failed").strip()
+            raise RuntimeError(err)
+
+        stdout = (proc.stdout or "").strip()
+        if not stdout:
+            return {}
+
+        try:
+            parsed = json.loads(stdout)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"result": parsed}
+        except json.JSONDecodeError:
+            match = re.search(r"(\{[\s\S]*\})\s*$", stdout)
+            if not match:
+                raise RuntimeError(f"Unexpected gateway output: {stdout[:280]}")
+            parsed = json.loads(match.group(1))
+            if isinstance(parsed, dict):
+                return parsed
+            return {"result": parsed}
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -929,16 +1016,97 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
             self.path = "/index.html"
         super().do_GET()
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/chat/send":
+            try:
+                body = self._read_json_body()
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+
+            key = str(body.get("key") or body.get("sessionKey") or "").strip()
+            message = str(body.get("message") or "").strip()
+            deliver = bool(body.get("deliver", False))
+            if not key:
+                self._send_json({"error": "Missing session key"}, status=400)
+                return
+            if not message:
+                self._send_json({"error": "Message cannot be empty"}, status=400)
+                return
+
+            sessions = _load_all_session_meta(self.state_dir)
+            selected = self._find_session(sessions, key)
+            if not selected:
+                self._send_json({"error": f"Session not found: {key}"}, status=404)
+                return
+
+            idempotency_key = str(body.get("idempotencyKey") or uuid.uuid4().hex)
+            params = {
+                "sessionKey": key,
+                "message": message,
+                "deliver": deliver,
+                "idempotencyKey": idempotency_key,
+            }
+            try:
+                result = self._gateway_call("chat.send", params)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": f"chat.send failed: {exc}"}, status=502)
+                return
+
+            self._send_json(
+                {
+                    "ok": True,
+                    "sessionKey": key,
+                    "idempotencyKey": idempotency_key,
+                    "gateway": result,
+                    "acceptedAtMs": int(time.time() * 1000),
+                }
+            )
+            return
+
+        if parsed.path == "/api/chat/abort":
+            try:
+                body = self._read_json_body()
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+
+            key = str(body.get("key") or body.get("sessionKey") or "").strip()
+            if not key:
+                self._send_json({"error": "Missing session key"}, status=400)
+                return
+
+            try:
+                result = self._gateway_call("chat.abort", {"sessionKey": key})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": f"chat.abort failed: {exc}"}, status=502)
+                return
+
+            self._send_json({"ok": True, "sessionKey": key, "gateway": result})
+            return
+
+        self._send_json({"error": "Not found"}, status=404)
+
 
 def main() -> None:
     args = parse_args()
     state_dir = Path(args.state_dir).expanduser().resolve()
     ClawViewHandler.state_dir = state_dir
+    ClawViewHandler.gateway_url = (args.gateway_url or "").strip()
+    ClawViewHandler.gateway_token = (args.gateway_token or "").strip()
+    ClawViewHandler.gateway_password = (args.gateway_password or "").strip()
+    ClawViewHandler.gateway_timeout_ms = max(1000, _safe_int(args.gateway_timeout_ms, 15000))
 
     server = ThreadingHTTPServer((args.host, args.port), ClawViewHandler)
     url = f"http://{args.host}:{args.port}"
     print(f"[clawview] state dir: {state_dir}")
     print(f"[clawview] server    : {url}")
+    if ClawViewHandler.gateway_url:
+        print(f"[clawview] gateway   : {ClawViewHandler.gateway_url}")
+    else:
+        print("[clawview] gateway   : use openclaw CLI default config")
     print("[clawview] press Ctrl+C to stop")
 
     if args.open:

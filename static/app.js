@@ -38,6 +38,12 @@ const state = {
     showTools: true,
     showMeta: true,
   },
+  replySending: false,
+  replyAborting: false,
+  replyStatus: "",
+  replyStatusTone: "muted",
+  replyPollTimer: null,
+  replyPollTicks: 0,
 };
 
 const el = {
@@ -60,6 +66,10 @@ const el = {
   viewShowMeta: document.getElementById("view-show-meta"),
   exportJsonBtn: document.getElementById("export-json-btn"),
   exportMdBtn: document.getElementById("export-md-btn"),
+  replyInput: document.getElementById("session-reply-input"),
+  replySendBtn: document.getElementById("session-reply-send-btn"),
+  replyAbortBtn: document.getElementById("session-reply-abort-btn"),
+  replyStatus: document.getElementById("session-reply-status"),
   searchModal: document.getElementById("search-modal"),
   searchModalClose: document.getElementById("search-modal-close"),
   totalSessions: document.getElementById("total-sessions"),
@@ -147,6 +157,16 @@ const I18N = {
     "session.empty.no_visible": "当前筛选条件下暂无可展示消息",
     "session.loading": "加载中...",
     "session.load.failed": "加载失败: {error}",
+    "session.reply.placeholder": "继续在这个 session 中提问…",
+    "button.session.reply.send": "继续对话",
+    "button.session.reply.abort": "停止",
+    "session.reply.empty": "请输入消息",
+    "session.reply.sending": "发送中...",
+    "session.reply.sent": "已发送，等待模型回复...",
+    "session.reply.failed": "发送失败: {error}",
+    "session.reply.stopping": "停止中...",
+    "session.reply.stopped": "已发送停止请求",
+    "session.reply.stop.failed": "停止失败: {error}",
     "sessions.fetch.failed": "sessions 拉取失败",
     "sessions.none.readable": "当前没有可读取的 sessions",
     "data.none": "暂无数据",
@@ -236,6 +256,16 @@ const I18N = {
     "session.empty.no_visible": "No visible messages under current filters",
     "session.loading": "Loading...",
     "session.load.failed": "Load failed: {error}",
+    "session.reply.placeholder": "Continue chatting in this session…",
+    "button.session.reply.send": "Send",
+    "button.session.reply.abort": "Stop",
+    "session.reply.empty": "Please enter a message",
+    "session.reply.sending": "Sending...",
+    "session.reply.sent": "Sent. Waiting for model response...",
+    "session.reply.failed": "Send failed: {error}",
+    "session.reply.stopping": "Stopping...",
+    "session.reply.stopped": "Stop request sent",
+    "session.reply.stop.failed": "Stop failed: {error}",
     "sessions.fetch.failed": "Failed to fetch sessions",
     "sessions.none.readable": "No readable sessions found",
     "data.none": "No data",
@@ -831,6 +861,7 @@ function openSessionModal() {
   state.modalOpen = true;
   el.sessionModal.classList.add("open");
   el.sessionModal.setAttribute("aria-hidden", "false");
+  applyReplyComposerState();
   syncModalBodyState();
 }
 
@@ -839,12 +870,141 @@ function closeSessionModal() {
   state.modalOpen = false;
   el.sessionModal.classList.remove("open");
   el.sessionModal.setAttribute("aria-hidden", "true");
+  stopReplyPolling();
+  setReplyStatus("", "muted");
   syncModalBodyState();
 }
 
 function syncModalBodyState() {
   const hasOpenModal = state.modalOpen || state.searchModalOpen;
   document.body.classList.toggle("modal-open", hasOpenModal);
+}
+
+function setReplyStatus(message = "", tone = "muted", vars = {}) {
+  state.replyStatus = message ? t(message, vars) : "";
+  state.replyStatusTone = tone;
+  if (!el.replyStatus) return;
+  el.replyStatus.textContent = state.replyStatus;
+  el.replyStatus.className = `session-reply-status ${tone}`;
+}
+
+function applyReplyComposerState() {
+  const hasSession = Boolean(state.selectedKey);
+  const disabled = !hasSession || state.replySending || state.replyAborting;
+  if (el.replyInput) {
+    el.replyInput.disabled = disabled;
+  }
+  if (el.replySendBtn) {
+    el.replySendBtn.disabled = disabled;
+  }
+  if (el.replyAbortBtn) {
+    el.replyAbortBtn.disabled = !hasSession || state.replyAborting;
+  }
+}
+
+function stopReplyPolling() {
+  if (state.replyPollTimer) {
+    clearInterval(state.replyPollTimer);
+    state.replyPollTimer = null;
+  }
+  state.replyPollTicks = 0;
+}
+
+function startReplyPolling() {
+  stopReplyPolling();
+  const activeKey = state.selectedKey;
+  if (!activeKey) return;
+
+  state.replyPollTicks = 0;
+  state.replyPollTimer = setInterval(async () => {
+    if (!state.modalOpen || !state.selectedKey || state.selectedKey !== activeKey) {
+      stopReplyPolling();
+      return;
+    }
+    state.replyPollTicks += 1;
+    try {
+      await loadSessionDetail(activeKey, true);
+      const row = state.sessions.find((s) => s.key === activeKey);
+      if (row) {
+        state.selectedUpdatedAt = Number(row.updatedAt || state.selectedUpdatedAt || 0);
+      }
+    } catch (_err) {
+      // best effort polling
+    }
+    if (state.replyPollTicks >= 30) {
+      stopReplyPolling();
+    }
+  }, 1500);
+}
+
+async function sendReplyMessage() {
+  if (!state.selectedKey || !el.replyInput) return;
+  const message = (el.replyInput.value || "").trim();
+  if (!message) {
+    setReplyStatus("session.reply.empty", "warn");
+    return;
+  }
+
+  state.replySending = true;
+  setReplyStatus("session.reply.sending", "muted");
+  applyReplyComposerState();
+
+  try {
+    const res = await fetch("/api/chat/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionKey: state.selectedKey,
+        message,
+        deliver: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+
+    el.replyInput.value = "";
+    setReplyStatus("session.reply.sent", "ok");
+    await loadSessionDetail(state.selectedKey, true);
+    startReplyPolling();
+  } catch (err) {
+    setReplyStatus("session.reply.failed", "danger", { error: String(err) });
+  } finally {
+    state.replySending = false;
+    applyReplyComposerState();
+  }
+}
+
+async function abortReplyRun() {
+  if (!state.selectedKey) return;
+  state.replyAborting = true;
+  setReplyStatus("session.reply.stopping", "muted");
+  applyReplyComposerState();
+
+  try {
+    const res = await fetch("/api/chat/abort", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ sessionKey: state.selectedKey }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+    setReplyStatus("session.reply.stopped", "ok");
+    await loadSessionDetail(state.selectedKey, true);
+  } catch (err) {
+    setReplyStatus("session.reply.stop.failed", "danger", { error: String(err) });
+  } finally {
+    state.replyAborting = false;
+    applyReplyComposerState();
+  }
 }
 
 function openSearchModal() {
@@ -873,7 +1033,10 @@ async function openSessionAndLoad(sessionKey, jumpMessageId = null, detectDelta 
   state.jumpMessageId = jumpMessageId;
   state.newMessageIds = new Set();
   state.currentSessionPayload = null;
+  stopReplyPolling();
+  setReplyStatus("", "muted");
   openSessionModal();
+  applyReplyComposerState();
   renderSessions();
   await loadSessionDetail(sessionKey, detectDelta, jumpMessageId);
 
@@ -1139,6 +1302,7 @@ async function loadSessions(options = { delta: false }) {
     el.sessionModalMeta.textContent = t("sessions.none.readable");
     el.sessionModalMessages.innerHTML = `<p class="empty">${escapeHtml(t("sessions.none.readable"))}</p>`;
     closeSessionModal();
+    applyReplyComposerState();
     return;
   }
 
@@ -1157,6 +1321,8 @@ async function loadSessions(options = { delta: false }) {
       state.jumpMessageId = null;
     }
   }
+
+  applyReplyComposerState();
 }
 
 function renderAgentBars(rows) {
@@ -1830,6 +1996,30 @@ if (el.viewOnlyDialogue && el.viewShowTools && el.viewShowMeta) {
   });
 }
 
+if (el.replySendBtn) {
+  el.replySendBtn.addEventListener("click", () => {
+    sendReplyMessage();
+  });
+}
+if (el.replyAbortBtn) {
+  el.replyAbortBtn.addEventListener("click", () => {
+    abortReplyRun();
+  });
+}
+if (el.replyInput) {
+  el.replyInput.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      sendReplyMessage();
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendReplyMessage();
+    }
+  });
+}
+
 el.sessionModalClose.addEventListener("click", closeSessionModal);
 el.sessionModal.addEventListener("click", (event) => {
   if (event.target === el.sessionModal) {
@@ -1860,6 +2050,8 @@ document.addEventListener("keydown", (event) => {
 
 initLanguage();
 syncMessageViewControls();
+applyReplyComposerState();
+setReplyStatus("", "muted");
 setupAutoRefresh();
 renderSearchResults();
 applyInitialOpenState();
