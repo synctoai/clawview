@@ -13,7 +13,6 @@
 - 会话筛选与跨会话全文检索
 - 统计分析：Agent 消息量、活跃时段、Token 趋势、Bot 提及关系图
 - Session 弹框支持 Markdown 渲染，工具调用/结果弱化并可展开
-- 可在 Session 弹框内直接继续对话（调用 Gateway `chat.send`，默认 `deliver=false`）
 - 本地中英文切换（默认中文，语言设置会保存在浏览器本地）
 - 增量追踪页 `live.html` 实时查看新消息流
 
@@ -35,11 +34,6 @@ chmod +x start.sh
 
 # 自定义 OpenClaw 状态目录
 OPENCLAW_STATE_DIR=/path/to/.openclaw ./start.sh
-
-# 显式指定 Gateway（可选，默认使用 openclaw CLI 配置）
-OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789 \
-OPENCLAW_GATEWAY_TOKEN=xxx \
-./start.sh
 ```
 
 ### 发布前安全检查
@@ -59,8 +53,6 @@ OPENCLAW_GATEWAY_TOKEN=xxx \
 - `GET /api/search?q=<keywords>&limit=<n>`
 - `GET /api/recent?minutes=<n>&sinceMs=<ms>&limit=<n>`
 - `GET /api/session/export?key=<session-key>&format=json|md`
-- `POST /api/chat/send` (`{ sessionKey, message, deliver? }`)
-- `POST /api/chat/abort` (`{ sessionKey }`)
 
 ---
 
@@ -75,7 +67,6 @@ OPENCLAW_GATEWAY_TOKEN=xxx \
 - Session filter and cross-session full-text search
 - Analytics: agent volume, active-hour distribution, token trend, bot mention graph
 - Session modal with Markdown rendering and collapsible tool call/result blocks
-- Continue chatting directly in a chosen session (Gateway `chat.send`, default `deliver=false`)
 - Local bilingual UI (Chinese by default, language preference persisted in browser)
 - Live stream page at `live.html` for incremental message tracking
 
@@ -116,5 +107,3 @@ The script scans for common secret patterns and risky local files (such as `.env
 - `GET /api/search?q=<keywords>&limit=<n>`
 - `GET /api/recent?minutes=<n>&sinceMs=<ms>&limit=<n>`
 - `GET /api/session/export?key=<session-key>&format=json|md`
-- `POST /api/chat/send` (`{ sessionKey, message, deliver? }`)
-- `POST /api/chat/abort` (`{ sessionKey }`)
