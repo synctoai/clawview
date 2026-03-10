@@ -930,28 +930,20 @@ function renderAgentFilter() {
 function renderSessions() {
   const sessions = getFilteredSessions();
   el.sessionCount.textContent = `${sessions.length}/${state.sessions.length}`;
-  el.sessionList.innerHTML = "";
 
   if (!sessions.length) {
     el.sessionList.innerHTML = `<p class="empty">${escapeHtml(t("session.empty.filtered"))}</p>`;
     return;
   }
 
-  sessions.forEach((session, index) => {
-    const item = document.createElement("button");
-    const isActive = state.selectedKey === session.key;
-    const isUpdated = state.updatedKeys.has(session.key);
-    const kindLabel =
-      session.kind && String(session.kind).toLowerCase() !== "unknown"
-        ? session.kind
-        : session.channel || t("common.session");
-    item.className = `session-item ${isActive ? "active" : ""} ${isUpdated ? "fresh" : ""}`;
-    item.style.animationDelay = `${Math.min(index * 25, 280)}ms`;
-
-    item.innerHTML = `
+  const kindLabelFor = (session) =>
+    session.kind && String(session.kind).toLowerCase() !== "unknown"
+      ? session.kind
+      : session.channel || t("common.session");
+  const markupFor = (session, isUpdated) => `
       <div class="session-line-top">
         <div class="session-title">${escapeHtml(session.agentId || t("common.unknown"))} · ${escapeHtml(
-      kindLabel
+      kindLabelFor(session)
     )}</div>
         ${isUpdated ? `<span class="pill">${escapeHtml(t("session.badge.new"))}</span>` : ""}
       </div>
@@ -961,11 +953,66 @@ function renderSessions() {
         <span>${escapeHtml(fmtDate(session.updatedAtIso))}</span>
       </div>
     `;
+  const signatureFor = (session, isActive, isUpdated) =>
+    [
+      state.lang,
+      session.key || "",
+      session.agentId || "",
+      session.kind || "",
+      session.channel || "",
+      session.updatedAtIso || "",
+      isActive ? "1" : "0",
+      isUpdated ? "1" : "0",
+    ].join("\u0001");
 
-    item.addEventListener("click", async () => {
-      await openSessionAndLoad(session.key);
-    });
-    el.sessionList.appendChild(item);
+  const emptyNode = el.sessionList.querySelector(".empty");
+  if (emptyNode) emptyNode.remove();
+
+  const existing = new Map();
+  el.sessionList.querySelectorAll(".session-item[data-session-key]").forEach((node) => {
+    existing.set(node.dataset.sessionKey || "", node);
+  });
+  const keepKeys = new Set();
+
+  sessions.forEach((session, index) => {
+    const key = String(session.key || "");
+    keepKeys.add(key);
+    const isActive = state.selectedKey === session.key;
+    const isUpdated = state.updatedKeys.has(session.key);
+    let item = existing.get(key);
+    const nextClassName = `session-item ${isActive ? "active" : ""} ${isUpdated ? "fresh" : ""}`;
+    const signature = signatureFor(session, isActive, isUpdated);
+
+    if (!item) {
+      item = document.createElement("button");
+      item.type = "button";
+      item.style.animationDelay = `${Math.min(index * 25, 280)}ms`;
+      item.addEventListener("click", async () => {
+        const targetKey = item.dataset.sessionKey || "";
+        if (!targetKey) return;
+        await openSessionAndLoad(targetKey);
+      });
+    }
+
+    item.dataset.sessionKey = key;
+    if (item.className !== nextClassName) {
+      item.className = nextClassName;
+    }
+    if (item.dataset.renderSig !== signature) {
+      item.innerHTML = markupFor(session, isUpdated);
+      item.dataset.renderSig = signature;
+    }
+
+    const anchor = el.sessionList.children[index] || null;
+    if (anchor !== item) {
+      el.sessionList.insertBefore(item, anchor);
+    }
+  });
+
+  existing.forEach((node, key) => {
+    if (!keepKeys.has(key)) {
+      node.remove();
+    }
   });
 }
 
