@@ -1,263 +1,323 @@
-# OpenClaw Agent 会话总览 · ClawView
+# ClawView
+
+<p align="left">
+  <a href="https://www.npmjs.com/package/clawview"><img alt="npm" src="https://img.shields.io/npm/v/clawview"></a>
+  <a href="https://www.npmjs.com/package/clawview"><img alt="npm downloads" src="https://img.shields.io/npm/dm/clawview"></a>
+  <img alt="node" src="https://img.shields.io/badge/node-%3E%3D18-brightgreen">
+  <img alt="python" src="https://img.shields.io/badge/python-3.x-blue">
+</p>
+
+OpenClaw 会话可视化工具。安装后运行 `clawview`，即可在浏览器中查看会话、检索内容和分析统计。  
+A local visualization tool for OpenClaw sessions. Install and run `clawview` to browse, search, and analyze conversations in your browser.
 
 [中文](#中文) | [English](#english)
 
-## 中文
-
-`ClawView` 是一个用于 OpenClaw 的本地会话可视化工具，可一键启动并在浏览器查看全部 sessions 聊天记录。
-
 ![Demo](./assets/Demo.png)
 
-### 功能
+---
 
-- 聚合 `~/.openclaw/agents/*/sessions/sessions.json` 会话数据
-- 历史会话自动备份到本地历史仓库，避免 `/new` 后旧会话丢失
-- 固定看板首页 + 侧栏 session 快速打开弹框
-- 会话按“可用 / 历史”分组展示，支持状态筛选
-- 会话筛选与跨会话全文检索
-- 统计分析：Agent 消息量、活跃时段、Token 趋势、Bot 提及关系图（总 Sessions/消息/Tokens 默认包含历史会话）
-- Session 弹框支持 Markdown 渲染，工具调用/结果弱化并可展开
-- 本地中英文切换（默认中文，语言设置会保存在浏览器本地）
-- 增量追踪页 `live.html` 实时查看新消息流
+## 中文
 
-### 快速开始（npm）
+### 1. 功能亮点
 
-要求：`Node.js >= 18`、`Python 3`。
+- 聚合 `~/.openclaw/agents/*/sessions/sessions.json` 的会话数据
+- 自动备份历史会话，避免 `/new` 后旧会话丢失
+- 会话分组（活跃/历史）、状态筛选、跨会话全文检索
+- Dashboard 统计：消息量、活跃时段、Token 趋势、Bot 提及关系
+- 会话弹框支持 Markdown，工具调用/结果可折叠
+- `live.html` 增量追踪实时消息流
+- 本地双语界面（默认中文）
+
+### 2. 环境要求
+
+- Node.js `>= 18`
+- Python `3.x`
+
+### 3. 安装
 
 ```bash
 npm i -g clawview
-clawview
 ```
 
-本地开发调试可用：
+本地开发安装（从源码目录）：
 
 ```bash
 cd /path/to/clawview
 npm i -g .
 ```
 
-首次执行 `clawview` 会进入配置向导，支持回车直接使用默认值：
-
-- `host`: `127.0.0.1`
-- `port`: `8788`
-- `stateDir`: `~/.openclaw`
-- `historyRoot`: `~/.clawview`
-- `autoOpen`: `true`（启动后自动打开浏览器）
-
-配置文件默认保存到：`~/.clawview/config.json`。
-
-### 一键静默启动
+### 4. 快速开始
 
 ```bash
-# 后台静默启动，并按配置自动打开 web 页面
-clawview --silent
-
-# 查看状态
-clawview --status
-
-# 停止后台进程
-clawview --stop
+clawview
 ```
 
-后台日志：`~/.clawview/run/clawview.log`。
+首次执行会进入配置向导，回车可使用默认值：
 
-### 常用参数
+| 配置项 | 默认值 |
+| --- | --- |
+| `host` | `127.0.0.1` |
+| `port` | `8788` |
+| `stateDir` | `~/.openclaw` |
+| `historyRoot` | `~/.clawview` |
+| `autoOpen` | `true` |
+
+默认会自动打开：`http://127.0.0.1:8788`
+
+### 5. 命令说明
+
+| 命令 | 说明 |
+| --- | --- |
+| `clawview` | 前台启动服务 |
+| `clawview --silent` | 后台静默启动并按配置打开页面 |
+| `clawview --status` | 查看服务状态 |
+| `clawview --stop` | 停止后台进程 |
+| `clawview --configure` | 重新进入交互配置向导 |
+| `clawview --port 8799` | 临时覆盖端口（本次启动生效） |
+| `clawview --state-dir /path/to/.openclaw` | 临时覆盖 OpenClaw 状态目录 |
+| `clawview --history-root /path/to/history-root` | 临时覆盖历史目录 |
+| `clawview --no-open` | 启动时不打开浏览器 |
+| `clawview --print-config` | 打印当前生效配置 |
+
+配置子命令（持久化写入配置文件）：
 
 ```bash
-# 重新打开配置向导
-clawview --configure
-
-# 临时覆盖端口
-clawview --port 8799
-
-# 临时覆盖 OpenClaw 状态目录
-clawview --state-dir /path/to/.openclaw
-
-# 临时覆盖历史根目录
-clawview --history-root /path/to/history-root
-
-# 启动时不自动打开浏览器
-clawview --no-open
-
-# 打印当前生效配置
-clawview --print-config
-
-# 非交互配置（持久化写入 ~/.clawview/config.json）
+clawview config show
+clawview config path
+clawview config get port
 clawview config set --port 9000
 clawview config set --state-dir /path/to/.openclaw --history-root /path/to/history-root
 clawview config set --auto-open false
-clawview config get port
-clawview config show
 clawview config reset
 ```
 
-### 兼容原启动方式
+### 6. 配置与目录
 
-```bash
-./start.sh
+配置文件：`~/.clawview/config.json`  
+后台运行目录：`~/.clawview/run/`（含 `clawview.pid`、`clawview.log`）
+
+示例配置：
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8788,
+  "stateDir": "~/.openclaw",
+  "historyRoot": "~/.clawview",
+  "autoOpen": true
+}
 ```
 
-### 历史备份目录结构
+支持环境变量：
 
-默认历史根目录是 `~/.clawview`，实际数据会写到：
+| 变量 | 说明 |
+| --- | --- |
+| `CLAWVIEW_CONFIG` | 自定义配置文件路径 |
+| `CLAWVIEW_PYTHON` | 指定 Python 可执行文件 |
+| `CLAWVIEW_NO_BROWSER=1` | 禁用自动打开浏览器 |
 
-- `~/.clawview/history/v1/index.json`：历史索引（会话状态、活动槽位、元信息）
-- `~/.clawview/history/v1/sessions/<hash-prefix>/<session-id>/events.jsonl`：会话事件镜像
+### 7. 历史数据存储
+
+默认历史根目录为 `~/.clawview`，数据写入：
+
+- `~/.clawview/history/v1/index.json`
+- `~/.clawview/history/v1/sessions/<hash-prefix>/<session-id>/events.jsonl`
 
 说明：
 
-- 使用 `Path`/`expanduser`/`resolve` 做路径处理，兼容 macOS / Linux / Windows。
-- 会话目录使用哈希 ID，避免 Windows 下 `:` 等非法文件名字符问题。
-- 每次刷新会把当前活动会话同步到历史仓库；当会话被 `/new` 轮转或从活动列表消失时，旧会话自动标记为历史并保留。
+- 路径处理基于 `Path`/`expanduser`/`resolve`，兼容 macOS / Linux / Windows
+- 会话目录采用哈希 ID，规避 Windows 非法文件名字符
+- 活跃会话会持续同步，轮转或消失后会保留为历史会话
 
-### 发布前安全检查
+### 8. 本地 API
+
+| Endpoint | 说明 |
+| --- | --- |
+| `GET /api/health` | 健康检查 |
+| `GET /api/sessions` | 会话列表 |
+| `GET /api/session?id=<session-uid>` | 单会话详情（兼容 `key`） |
+| `GET /api/stats` | 统计数据 |
+| `GET /api/search?q=<keywords>&limit=<n>` | 跨会话检索 |
+| `GET /api/recent?minutes=<n>&sinceMs=<ms>&limit=<n>` | 最近消息 |
+| `GET /api/session/export?id=<session-uid>&format=json|md` | 导出会话（兼容 `key`） |
+
+### 9. 开发与发布
 
 ```bash
-# npm 发布前检查（版本、打包内容、Node/Python 依赖、CLI 冒烟）
+# 发布前检查（版本、打包内容、Node/Python、CLI 冒烟）
 npm run publish:check
 
 # 安全扫描（密钥/高风险文件）
 ./scripts/security_scan.sh
 ```
 
-该脚本会扫描常见密钥模式及高风险文件（如 `.env`、`*.pem`、`*.key`、日志/数据库文件）。
+兼容原脚本启动：
 
-### 本地 API
+```bash
+./start.sh
+```
 
-- `GET /api/health`
-- `GET /api/sessions`
-- `GET /api/session?id=<session-uid>` (兼容 `key`)
-- `GET /api/stats`
-- `GET /api/search?q=<keywords>&limit=<n>`
-- `GET /api/recent?minutes=<n>&sinceMs=<ms>&limit=<n>`
-- `GET /api/session/export?id=<session-uid>&format=json|md` (兼容 `key`)
+### 10. 常见问题
+
+**Q: 执行 `clawview` 没有自动打开浏览器？**  
+A: 先确认未设置 `CLAWVIEW_NO_BROWSER=1`，再手动访问 `http://127.0.0.1:8788` 或执行 `clawview --status` 检查服务。
+
+**Q: 端口占用怎么办？**  
+A: 使用 `clawview --port 8799` 临时启动，或 `clawview config set --port 8799` 持久化修改。
+
+**Q: Python 未找到？**  
+A: 安装 `python3`，或设置 `CLAWVIEW_PYTHON=/path/to/python3`。
 
 ---
 
 ## English
 
-`ClawView` is a local visualization tool for OpenClaw sessions. Start it with one command and inspect all session chats in your browser.
+### 1. Highlights
 
-### Features
+- Aggregates session data from `~/.openclaw/agents/*/sessions/sessions.json`
+- Automatically archives old sessions so `/new` does not lose history
+- Session grouping (active/archived), filtering, and full-text cross-session search
+- Dashboard analytics: message volume, active hours, token trend, bot mention graph
+- Markdown session modal with collapsible tool call/result blocks
+- Real-time incremental stream page at `live.html`
+- Localized bilingual UI (Chinese by default)
 
-- Aggregates data from `~/.openclaw/agents/*/sessions/sessions.json`
-- Automatically backs up historical sessions locally so `/new` does not erase previous conversations
-- Fixed dashboard layout with sidebar-driven session modal
-- Sessions are grouped by Active / Archived and support status filtering
-- Session filter and cross-session full-text search
-- Analytics: agent volume, active-hour distribution, token trend, bot mention graph (totals include active + historical sessions)
-- Session modal with Markdown rendering and collapsible tool call/result blocks
-- Local bilingual UI (Chinese by default, language preference persisted in browser)
-- Live stream page at `live.html` for incremental message tracking
+### 2. Requirements
 
-### Quick Start (npm)
+- Node.js `>= 18`
+- Python `3.x`
 
-Requirements: `Node.js >= 18`, `Python 3`.
+### 3. Installation
 
 ```bash
 npm i -g clawview
-clawview
 ```
 
-For local development:
+Local development install (from source):
 
 ```bash
 cd /path/to/clawview
 npm i -g .
 ```
 
-On first run, `clawview` starts an interactive setup wizard. Press Enter to accept defaults:
-
-- `host`: `127.0.0.1`
-- `port`: `8788`
-- `stateDir`: `~/.openclaw`
-- `historyRoot`: `~/.clawview`
-- `autoOpen`: `true` (open browser on startup)
-
-Default config path: `~/.clawview/config.json`.
-
-### One-Command Silent Start
+### 4. Quick Start
 
 ```bash
-# Start in background and open the web page
-clawview --silent
-
-# Check status
-clawview --status
-
-# Stop background process
-clawview --stop
+clawview
 ```
 
-Background log: `~/.clawview/run/clawview.log`.
+On first run, the setup wizard appears. Press Enter to accept defaults:
 
-### Common Options
+| Key | Default |
+| --- | --- |
+| `host` | `127.0.0.1` |
+| `port` | `8788` |
+| `stateDir` | `~/.openclaw` |
+| `historyRoot` | `~/.clawview` |
+| `autoOpen` | `true` |
+
+Default URL: `http://127.0.0.1:8788`
+
+### 5. Command Reference
+
+| Command | Description |
+| --- | --- |
+| `clawview` | Start server in foreground |
+| `clawview --silent` | Start in background and open page based on config |
+| `clawview --status` | Show service status |
+| `clawview --stop` | Stop background process |
+| `clawview --configure` | Re-run interactive setup wizard |
+| `clawview --port 8799` | Override port for current launch |
+| `clawview --state-dir /path/to/.openclaw` | Override OpenClaw state dir for current launch |
+| `clawview --history-root /path/to/history-root` | Override history root for current launch |
+| `clawview --no-open` | Disable auto-open browser on startup |
+| `clawview --print-config` | Print effective config |
+
+Config subcommands (persisted to config file):
 
 ```bash
-# Re-run setup wizard
-clawview --configure
-
-# Override port for current launch only
-clawview --port 8799
-
-# Override OpenClaw state dir for current launch
-clawview --state-dir /path/to/.openclaw
-
-# Override history root for current launch
-clawview --history-root /path/to/history-root
-
-# Disable browser open on startup
-clawview --no-open
-
-# Print effective config
-clawview --print-config
-
-# Non-interactive persisted config updates (~/.clawview/config.json)
+clawview config show
+clawview config path
+clawview config get port
 clawview config set --port 9000
 clawview config set --state-dir /path/to/.openclaw --history-root /path/to/history-root
 clawview config set --auto-open false
-clawview config get port
-clawview config show
 clawview config reset
 ```
 
-### Legacy Start Script
+### 6. Config and Directories
+
+Config file: `~/.clawview/config.json`  
+Background runtime directory: `~/.clawview/run/` (`clawview.pid`, `clawview.log`)
+
+Example config:
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8788,
+  "stateDir": "~/.openclaw",
+  "historyRoot": "~/.clawview",
+  "autoOpen": true
+}
+```
+
+Environment variables:
+
+| Variable | Description |
+| --- | --- |
+| `CLAWVIEW_CONFIG` | Custom config file path |
+| `CLAWVIEW_PYTHON` | Python executable path |
+| `CLAWVIEW_NO_BROWSER=1` | Disable browser auto-open |
+
+### 7. History Storage
+
+Default history root is `~/.clawview`, with data written to:
+
+- `~/.clawview/history/v1/index.json`
+- `~/.clawview/history/v1/sessions/<hash-prefix>/<session-id>/events.jsonl`
+
+Notes:
+
+- Paths use `Path`/`expanduser`/`resolve` for cross-platform behavior
+- Session directories are hash-based to avoid illegal filename characters on Windows
+- Active sessions are continuously synced and retained when rotated/removed
+
+### 8. Local API
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/health` | Health check |
+| `GET /api/sessions` | Session list |
+| `GET /api/session?id=<session-uid>` | Session detail (also supports `key`) |
+| `GET /api/stats` | Analytics data |
+| `GET /api/search?q=<keywords>&limit=<n>` | Cross-session search |
+| `GET /api/recent?minutes=<n>&sinceMs=<ms>&limit=<n>` | Recent messages |
+| `GET /api/session/export?id=<session-uid>&format=json|md` | Export session (also supports `key`) |
+
+### 9. Development and Release
+
+```bash
+# Pre-publish checks (version, pack contents, Node/Python, CLI smoke)
+npm run publish:check
+
+# Security scan (secrets / risky files)
+./scripts/security_scan.sh
+```
+
+Legacy startup script is still available:
 
 ```bash
 ./start.sh
 ```
 
-### History Storage Layout
+### 10. FAQ
 
-Default history root is `~/.clawview`; data is written to:
+**Q: Browser does not open automatically after startup.**  
+A: Ensure `CLAWVIEW_NO_BROWSER=1` is not set, then visit `http://127.0.0.1:8788` manually or run `clawview --status`.
 
-- `~/.clawview/history/v1/index.json`: history index (session status, active slots, metadata)
-- `~/.clawview/history/v1/sessions/<hash-prefix>/<session-id>/events.jsonl`: mirrored session events
+**Q: Port is already in use.**  
+A: Use `clawview --port 8799` for a one-time run, or `clawview config set --port 8799` to persist.
 
-Notes:
-
-- Path handling uses `Path`/`expanduser`/`resolve` for macOS, Linux, and Windows compatibility.
-- Session directories are hash-based to avoid illegal filename characters on Windows.
-- Active sessions are synced continuously; when a session rotates (for example by `/new`) or disappears from active slots, it is retained as archived history.
-
-### Pre-push Security Check
-
-```bash
-# Pre-publish checks (version, pack content, Node/Python runtime, CLI smoke)
-npm run publish:check
-
-# Security scan (secrets / risky local files)
-./scripts/security_scan.sh
-```
-
-The script scans for common secret patterns and risky local files (such as `.env`, `*.pem`, `*.key`, logs, and local DB files).
-
-### Local API
-
-- `GET /api/health`
-- `GET /api/sessions`
-- `GET /api/session?id=<session-uid>` (also supports `key`)
-- `GET /api/stats`
-- `GET /api/search?q=<keywords>&limit=<n>`
-- `GET /api/recent?minutes=<n>&sinceMs=<ms>&limit=<n>`
-- `GET /api/session/export?id=<session-uid>&format=json|md` (also supports `key`)
+**Q: Python is not found.**  
+A: Install `python3`, or set `CLAWVIEW_PYTHON=/path/to/python3`.
