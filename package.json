@@ -1,6 +1,6 @@
 {
   "name": "clawview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenClaw session viewer with one-command local web UI",
   "bin": {
     "clawview": "bin/clawview.js"
