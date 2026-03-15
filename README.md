@@ -14,6 +14,8 @@ OpenClaw 会话可视化工具。安装后运行 `clawview`，即可在浏览器
 
 ![Demo](./assets/Demo.png)
 
+![Demo-1](./assets/Demo-1.png)
+
 ---
 ## English
 ### 1. Highlights
