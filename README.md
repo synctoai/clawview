@@ -20,33 +20,75 @@
 - 本地中英文切换（默认中文，语言设置会保存在浏览器本地）
 - 增量追踪页 `live.html` 实时查看新消息流
 
-### 快速开始
+### 快速开始（npm）
+
+要求：`Node.js >= 18`、`Python 3`。
 
 ```bash
 cd /Users/leeeeeee/.openclaw/workspace-discord/projects/clawview
-chmod +x start.sh
-./start.sh
+npm install -g .
+clawview
 ```
 
-默认打开：`http://127.0.0.1:8788`
+首次执行 `clawview` 会进入配置向导，支持回车直接使用默认值：
 
-### 可选参数
+- `host`: `127.0.0.1`
+- `port`: `8788`
+- `stateDir`: `~/.openclaw`
+- `historyRoot`: `~/.clawview`
+- `autoOpen`: `true`（启动后自动打开浏览器）
+
+配置文件默认保存到：`~/.clawview/config.json`。
+
+### 一键静默启动
 
 ```bash
-# 自定义端口
-./start.sh 8799
+# 后台静默启动，并按配置自动打开 web 页面
+clawview --silent
 
-# 自定义 OpenClaw 状态目录
-OPENCLAW_STATE_DIR=/path/to/.openclaw ./start.sh
+# 查看状态
+clawview --status
 
-# 自定义历史备份根目录（默认: ~/.clawview）
-CLAWVIEW_HISTORY_DIR=/path/to/history-root ./start.sh
+# 停止后台进程
+clawview --stop
+```
 
-# 兼容旧变量名
-CLAWVIEW_BACKUP_DIR=/path/to/history-root ./start.sh
+后台日志：`~/.clawview/run/clawview.log`。
 
-# 或直接传启动参数
-python3 app.py --state-dir /path/to/.openclaw --history-root /path/to/history-root --port 8788 --open
+### 常用参数
+
+```bash
+# 重新打开配置向导
+clawview --configure
+
+# 临时覆盖端口
+clawview --port 8799
+
+# 临时覆盖 OpenClaw 状态目录
+clawview --state-dir /path/to/.openclaw
+
+# 临时覆盖历史根目录
+clawview --history-root /path/to/history-root
+
+# 启动时不自动打开浏览器
+clawview --no-open
+
+# 打印当前生效配置
+clawview --print-config
+
+# 非交互配置（持久化写入 ~/.clawview/config.json）
+clawview config set --port 9000
+clawview config set --state-dir /path/to/.openclaw --history-root /path/to/history-root
+clawview config set --auto-open false
+clawview config get port
+clawview config show
+clawview config reset
+```
+
+### 兼容原启动方式
+
+```bash
+./start.sh
 ```
 
 ### 历史备份目录结构
@@ -65,6 +107,10 @@ python3 app.py --state-dir /path/to/.openclaw --history-root /path/to/history-ro
 ### 发布前安全检查
 
 ```bash
+# npm 发布前检查（版本、打包内容、Node/Python 依赖、CLI 冒烟）
+npm run publish:check
+
+# 安全扫描（密钥/高风险文件）
 ./scripts/security_scan.sh
 ```
 
@@ -98,33 +144,75 @@ python3 app.py --state-dir /path/to/.openclaw --history-root /path/to/history-ro
 - Local bilingual UI (Chinese by default, language preference persisted in browser)
 - Live stream page at `live.html` for incremental message tracking
 
-### Quick Start
+### Quick Start (npm)
+
+Requirements: `Node.js >= 18`, `Python 3`.
 
 ```bash
 cd /Users/leeeeeee/.openclaw/workspace-discord/projects/clawview
-chmod +x start.sh
-./start.sh
+npm install -g .
+clawview
 ```
 
-Default URL: `http://127.0.0.1:8788`
+On first run, `clawview` starts an interactive setup wizard. Press Enter to accept defaults:
 
-### Optional Parameters
+- `host`: `127.0.0.1`
+- `port`: `8788`
+- `stateDir`: `~/.openclaw`
+- `historyRoot`: `~/.clawview`
+- `autoOpen`: `true` (open browser on startup)
+
+Default config path: `~/.clawview/config.json`.
+
+### One-Command Silent Start
 
 ```bash
-# Custom port
-./start.sh 8799
+# Start in background and open the web page
+clawview --silent
 
-# Custom OpenClaw state directory
-OPENCLAW_STATE_DIR=/path/to/.openclaw ./start.sh
+# Check status
+clawview --status
 
-# Custom history backup root (default: ~/.clawview)
-CLAWVIEW_HISTORY_DIR=/path/to/history-root ./start.sh
+# Stop background process
+clawview --stop
+```
 
-# Backward-compatible env name
-CLAWVIEW_BACKUP_DIR=/path/to/history-root ./start.sh
+Background log: `~/.clawview/run/clawview.log`.
 
-# Or pass CLI args directly
-python3 app.py --state-dir /path/to/.openclaw --history-root /path/to/history-root --port 8788 --open
+### Common Options
+
+```bash
+# Re-run setup wizard
+clawview --configure
+
+# Override port for current launch only
+clawview --port 8799
+
+# Override OpenClaw state dir for current launch
+clawview --state-dir /path/to/.openclaw
+
+# Override history root for current launch
+clawview --history-root /path/to/history-root
+
+# Disable browser open on startup
+clawview --no-open
+
+# Print effective config
+clawview --print-config
+
+# Non-interactive persisted config updates (~/.clawview/config.json)
+clawview config set --port 9000
+clawview config set --state-dir /path/to/.openclaw --history-root /path/to/history-root
+clawview config set --auto-open false
+clawview config get port
+clawview config show
+clawview config reset
+```
+
+### Legacy Start Script
+
+```bash
+./start.sh
 ```
 
 ### History Storage Layout
@@ -143,6 +231,10 @@ Notes:
 ### Pre-push Security Check
 
 ```bash
+# Pre-publish checks (version, pack content, Node/Python runtime, CLI smoke)
+npm run publish:check
+
+# Security scan (secrets / risky local files)
 ./scripts/security_scan.sh
 ```
 

@@ -1,0 +1,26 @@
+{
+  "name": "clawview",
+  "version": "0.1.0",
+  "description": "OpenClaw session viewer with one-command local web UI",
+  "bin": {
+    "clawview": "bin/clawview.js"
+  },
+  "scripts": {
+    "start": "node ./bin/clawview.js",
+    "publish:check": "node ./scripts/publish_check.js",
+    "prepublishOnly": "npm run publish:check"
+  },
+  "files": [
+    "app.py",
+    "static",
+    "assets",
+    "scripts",
+    "start.sh",
+    "bin/clawview.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
