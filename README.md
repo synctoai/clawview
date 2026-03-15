@@ -25,9 +25,15 @@
 要求：`Node.js >= 18`、`Python 3`。
 
 ```bash
-cd /Users/leeeeeee/.openclaw/workspace-discord/projects/clawview
-npm install -g .
+npm i -g clawview
 clawview
+```
+
+本地开发调试可用：
+
+```bash
+cd /path/to/clawview
+npm i -g .
 ```
 
 首次执行 `clawview` 会进入配置向导，支持回车直接使用默认值：
@@ -149,9 +155,15 @@ npm run publish:check
 Requirements: `Node.js >= 18`, `Python 3`.
 
 ```bash
-cd /Users/leeeeeee/.openclaw/workspace-discord/projects/clawview
-npm install -g .
+npm i -g clawview
 clawview
+```
+
+For local development:
+
+```bash
+cd /path/to/clawview
+npm i -g .
 ```
 
 On first run, `clawview` starts an interactive setup wizard. Press Enter to accept defaults:
