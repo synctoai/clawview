@@ -45,6 +45,7 @@ const el = {
   langSelect: document.getElementById("lang-select"),
   searchInput: document.getElementById("search-input"),
   agentFilter: document.getElementById("agent-filter"),
+  availabilityFilter: document.getElementById("availability-filter"),
   autoRefresh: document.getElementById("auto-refresh"),
   refreshInterval: document.getElementById("refresh-interval"),
   globalSearchOpenBtn: document.getElementById("global-search-open-btn"),
@@ -63,6 +64,7 @@ const el = {
   searchModal: document.getElementById("search-modal"),
   searchModalClose: document.getElementById("search-modal-close"),
   totalSessions: document.getElementById("total-sessions"),
+  totalSessionsBreakdown: document.getElementById("total-sessions-breakdown"),
   totalMessages: document.getElementById("total-messages"),
   totalTokens: document.getElementById("total-tokens"),
   activeRange: document.getElementById("active-range"),
@@ -89,6 +91,9 @@ const I18N = {
     "state.loading": "加载中...",
     "search.placeholder": "过滤 session key / channel / model",
     "agents.all": "全部 agents",
+    "sessions.scope.all": "全部会话",
+    "sessions.scope.active": "可用会话",
+    "sessions.scope.archived": "历史会话",
     "auto.refresh": "自动刷新",
     "refresh.interval.title": "刷新间隔",
     "language.select.title": "语言 / Language",
@@ -105,6 +110,7 @@ const I18N = {
     "link.live.view": "增量追踪",
     "panel.sessions": "Sessions",
     "stats.total.sessions": "总 Sessions",
+    "stats.total.sessions.breakdown": "活跃 {active} · 历史 {archived}",
     "stats.total.messages": "总消息数",
     "stats.total.tokens": "总 Tokens",
     "stats.active.range": "活跃区间",
@@ -171,6 +177,9 @@ const I18N = {
     "mention.empty.samples": "暂无提及样本",
     "mention.samples.hidden": "其余 {count} 条样本已折叠，可用“全文检索”查看。",
     "session.badge.new": "NEW",
+    "session.badge.archived": "HISTORY",
+    "session.group.active": "可用会话 ({count})",
+    "session.group.archived": "历史会话 ({count})",
   },
   "en-US": {
     "page.title": "OpenClaw Agent Session Overview · ClawView",
@@ -178,6 +187,9 @@ const I18N = {
     "state.loading": "Loading...",
     "search.placeholder": "Filter by session key / channel / model",
     "agents.all": "All agents",
+    "sessions.scope.all": "All sessions",
+    "sessions.scope.active": "Active sessions",
+    "sessions.scope.archived": "Archived sessions",
     "auto.refresh": "Auto refresh",
     "refresh.interval.title": "Refresh interval",
     "language.select.title": "Language / 语言",
@@ -194,6 +206,7 @@ const I18N = {
     "link.live.view": "Live Stream",
     "panel.sessions": "Sessions",
     "stats.total.sessions": "Total Sessions",
+    "stats.total.sessions.breakdown": "Active {active} · Archived {archived}",
     "stats.total.messages": "Total Messages",
     "stats.total.tokens": "Total Tokens",
     "stats.active.range": "Active Range",
@@ -260,6 +273,9 @@ const I18N = {
     "mention.empty.samples": "No mention samples",
     "mention.samples.hidden": "{count} sample(s) are collapsed. Use Global Search for more.",
     "session.badge.new": "NEW",
+    "session.badge.archived": "HISTORY",
+    "session.group.active": "Active sessions ({count})",
+    "session.group.archived": "Archived sessions ({count})",
   },
 };
 
@@ -894,35 +910,47 @@ function closeSearchModal() {
   syncModalBodyState();
 }
 
-async function openSessionAndLoad(sessionKey, jumpMessageId = null, detectDelta = false) {
-  state.selectedKey = sessionKey;
+async function openSessionAndLoad(sessionUid, jumpMessageId = null, detectDelta = false) {
+  state.selectedKey = sessionUid;
   state.selectedUpdatedAt = 0;
   state.jumpMessageId = jumpMessageId;
   state.newMessageIds = new Set();
   state.currentSessionPayload = null;
   openSessionModal();
   renderSessions();
-  await loadSessionDetail(sessionKey, detectDelta, jumpMessageId);
+  await loadSessionDetail(sessionUid, detectDelta, jumpMessageId);
 
-  const row = state.sessions.find((s) => s.key === sessionKey);
+  const row = state.sessions.find((s) => (s.uid || s.id || s.key) === sessionUid);
   if (row) state.selectedUpdatedAt = Number(row.updatedAt || 0);
 }
 
 function exportSelected(format) {
   if (!state.selectedKey) return;
-  const url = `/api/session/export?key=${encodeURIComponent(state.selectedKey)}&format=${format}`;
+  const selected = state.sessions.find((s) => (s.uid || s.id || s.key) === state.selectedKey);
+  const query = selected
+    ? `id=${encodeURIComponent(selected.uid || selected.id || state.selectedKey)}`
+    : `key=${encodeURIComponent(state.selectedKey)}`;
+  const url = `/api/session/export?${query}&format=${format}`;
   const a = document.createElement("a");
   a.href = url;
   a.rel = "noopener";
   a.click();
 }
 
+function isSessionArchived(session) {
+  return !!session.isArchived || session.active === false;
+}
+
 function getFilteredSessions() {
   const q = el.searchInput.value.trim().toLowerCase();
   const agent = el.agentFilter.value;
+  const scope = el.availabilityFilter?.value || "";
 
   return state.sessions.filter((session) => {
     if (agent && session.agentId !== agent) return false;
+    const archived = isSessionArchived(session);
+    if (scope === "active" && archived) return false;
+    if (scope === "archived" && !archived) return false;
     if (!q) return true;
 
     const haystack = [
@@ -967,79 +995,80 @@ function renderSessions() {
     session.kind && String(session.kind).toLowerCase() !== "unknown"
       ? session.kind
       : session.channel || t("common.session");
-  const markupFor = (session, isUpdated) => `
+  const markupFor = (session, isUpdated, isArchived, animationDelayMs) => `
+      <button
+        type="button"
+        class="session-item ${state.selectedKey === String(session.uid || session.id || session.key || "") ? "active" : ""} ${
+          isUpdated ? "fresh" : ""
+        } ${isArchived ? "archived" : ""}"
+        style="animation-delay:${animationDelayMs}ms"
+        data-session-id="${escapeHtml(String(session.uid || session.id || session.key || ""))}"
+      >
       <div class="session-line-top">
         <div class="session-title">${escapeHtml(session.agentId || t("common.unknown"))} · ${escapeHtml(
       kindLabelFor(session)
     )}</div>
-        ${isUpdated ? `<span class="pill">${escapeHtml(t("session.badge.new"))}</span>` : ""}
+        <div>
+          ${isArchived ? `<span class="pill pill-archived">${escapeHtml(t("session.badge.archived"))}</span>` : ""}
+          ${isUpdated ? `<span class="pill">${escapeHtml(t("session.badge.new"))}</span>` : ""}
+        </div>
       </div>
       <div class="session-key">${escapeHtml(session.key || "-")}</div>
       <div class="session-meta-line">
         <span>${escapeHtml(session.channel || "-")}</span>
         <span>${escapeHtml(fmtDate(session.updatedAtIso))}</span>
       </div>
+      </button>
     `;
-  const signatureFor = (session, isActive, isUpdated) =>
-    [
-      state.lang,
-      session.key || "",
-      session.agentId || "",
-      session.kind || "",
-      session.channel || "",
-      session.updatedAtIso || "",
-      isActive ? "1" : "0",
-      isUpdated ? "1" : "0",
-    ].join("\u0001");
 
-  const emptyNode = el.sessionList.querySelector(".empty");
-  if (emptyNode) emptyNode.remove();
+  const activeSessions = sessions.filter((session) => !isSessionArchived(session));
+  const archivedSessions = sessions.filter((session) => isSessionArchived(session));
+  const groups = [];
+  if (activeSessions.length) {
+    groups.push({
+      title: t("session.group.active", { count: fmtNumber(activeSessions.length) }),
+      className: "session-group-active",
+      sessions: activeSessions,
+    });
+  }
+  if (archivedSessions.length) {
+    groups.push({
+      title: t("session.group.archived", { count: fmtNumber(archivedSessions.length) }),
+      className: "session-group-archived",
+      sessions: archivedSessions,
+    });
+  }
 
-  const existing = new Map();
-  el.sessionList.querySelectorAll(".session-item[data-session-key]").forEach((node) => {
-    existing.set(node.dataset.sessionKey || "", node);
-  });
-  const keepKeys = new Set();
+  let sequence = 0;
+  el.sessionList.innerHTML = groups
+    .map((group) => {
+      const items = group.sessions
+        .map((session) => {
+          const isArchived = isSessionArchived(session);
+          const sessionId = String(session.uid || session.id || session.key || "");
+          const isUpdated = state.updatedKeys.has(sessionId);
+          sequence += 1;
+          const delay = Math.min(sequence * 18, 240);
+          return markupFor(session, isUpdated, isArchived, delay);
+        })
+        .join("");
+      return `
+        <section class="session-group ${group.className}">
+          <header class="session-group-title">${escapeHtml(group.title)}</header>
+          <div class="session-group-items">
+            ${items}
+          </div>
+        </section>
+      `;
+    })
+    .join("");
 
-  sessions.forEach((session, index) => {
-    const key = String(session.key || "");
-    keepKeys.add(key);
-    const isActive = state.selectedKey === session.key;
-    const isUpdated = state.updatedKeys.has(session.key);
-    let item = existing.get(key);
-    const nextClassName = `session-item ${isActive ? "active" : ""} ${isUpdated ? "fresh" : ""}`;
-    const signature = signatureFor(session, isActive, isUpdated);
-
-    if (!item) {
-      item = document.createElement("button");
-      item.type = "button";
-      item.style.animationDelay = `${Math.min(index * 25, 280)}ms`;
-      item.addEventListener("click", async () => {
-        const targetKey = item.dataset.sessionKey || "";
-        if (!targetKey) return;
-        await openSessionAndLoad(targetKey);
-      });
-    }
-
-    item.dataset.sessionKey = key;
-    if (item.className !== nextClassName) {
-      item.className = nextClassName;
-    }
-    if (item.dataset.renderSig !== signature) {
-      item.innerHTML = markupFor(session, isUpdated);
-      item.dataset.renderSig = signature;
-    }
-
-    const anchor = el.sessionList.children[index] || null;
-    if (anchor !== item) {
-      el.sessionList.insertBefore(item, anchor);
-    }
-  });
-
-  existing.forEach((node, key) => {
-    if (!keepKeys.has(key)) {
-      node.remove();
-    }
+  el.sessionList.querySelectorAll(".session-item[data-session-id]").forEach((item) => {
+    item.addEventListener("click", async () => {
+      const targetId = item.dataset.sessionId || "";
+      if (!targetId) return;
+      await openSessionAndLoad(targetId);
+    });
   });
 }
 
@@ -1147,7 +1176,9 @@ function renderMessages(payload, jumpMessageId) {
 
 async function loadSessionDetail(key, detectDelta, jumpMessageId = null) {
   el.sessionModalMessages.innerHTML = `<p class="empty">${escapeHtml(t("session.loading"))}</p>`;
-  const res = await fetch(`/api/session?key=${encodeURIComponent(key)}`);
+  const selected = state.sessions.find((s) => (s.uid || s.id || s.key) === key);
+  const query = selected ? `id=${encodeURIComponent(selected.uid || selected.id || key)}` : `key=${encodeURIComponent(key)}`;
+  const res = await fetch(`/api/session?${query}`);
   if (!res.ok) {
     const text = await res.text();
     el.sessionModalMessages.innerHTML = `<p class="empty">${escapeHtml(
@@ -1176,7 +1207,7 @@ async function loadSessionDetail(key, detectDelta, jumpMessageId = null) {
 }
 
 async function loadSessions(options = { delta: false }) {
-  const oldMap = new Map(state.sessions.map((s) => [s.key, Number(s.updatedAt || 0)]));
+  const oldMap = new Map(state.sessions.map((s) => [s.uid || s.id || s.key, Number(s.updatedAt || 0)]));
   const res = await fetch("/api/sessions");
   if (!res.ok) {
     state.stateDirPath = "";
@@ -1185,16 +1216,21 @@ async function loadSessions(options = { delta: false }) {
   }
 
   const data = await res.json();
-  state.sessions = data.sessions || [];
-  state.stateDirPath = data.stateDir || "";
-  el.stateDir.textContent = data.stateDir;
+  state.sessions = (data.sessions || []).map((session) => ({
+    ...session,
+    uid: session.uid || session.id || session.key,
+  }));
+  const stateDir = String(data.stateDir || "");
+  const historyDir = String(data.historyDir || "");
+  state.stateDirPath = historyDir ? `${stateDir} | history: ${historyDir}` : stateDir;
+  el.stateDir.textContent = state.stateDirPath;
 
-  const newMap = new Map(state.sessions.map((s) => [s.key, Number(s.updatedAt || 0)]));
+  const newMap = new Map(state.sessions.map((s) => [s.uid || s.id || s.key, Number(s.updatedAt || 0)]));
   const updated = new Set();
   if (options.delta) {
-    newMap.forEach((updatedAt, key) => {
-      const old = oldMap.get(key);
-      if (old === undefined || updatedAt > old) updated.add(key);
+    newMap.forEach((updatedAt, uid) => {
+      const old = oldMap.get(uid);
+      if (old === undefined || updatedAt > old) updated.add(uid);
     });
   }
   state.updatedKeys = updated;
@@ -1217,8 +1253,9 @@ async function loadSessions(options = { delta: false }) {
   }
 
   if (!state.selectedKey || !newMap.has(state.selectedKey)) {
-    state.selectedKey = state.sessions[0].key;
-    state.selectedUpdatedAt = Number(state.sessions[0].updatedAt || 0);
+    const preferred = state.sessions.find((session) => !isSessionArchived(session)) || state.sessions[0];
+    state.selectedKey = preferred.uid || preferred.id || preferred.key;
+    state.selectedUpdatedAt = Number(preferred.updatedAt || 0);
   }
 
   if (state.modalOpen && state.selectedKey) {
@@ -1458,7 +1495,7 @@ function drawMentionDetails() {
           ? visibleSamples
               .map(
                 (sample, idx) => `
-          <button class="mention-sample" data-session="${escapeHtml(sample.sessionKey || "")}" data-message="${
+          <button class="mention-sample" data-session="${escapeHtml(sample.sessionUid || sample.sessionKey || "")}" data-message="${
                   sample.messageId ? escapeHtml(sample.messageId) : ""
                 }">
             <div class="sample-head">
@@ -1482,10 +1519,10 @@ function drawMentionDetails() {
 
   el.mentionDetails.querySelectorAll(".mention-sample").forEach((node) => {
     node.addEventListener("click", async () => {
-      const sessionKey = node.getAttribute("data-session");
+      const sessionUid = node.getAttribute("data-session");
       const messageId = node.getAttribute("data-message") || null;
-      if (!sessionKey) return;
-      await openSessionAndLoad(sessionKey, messageId);
+      if (!sessionUid) return;
+      await openSessionAndLoad(sessionUid, messageId);
     });
   });
 }
@@ -1703,6 +1740,12 @@ function renderMentionNetwork(edges, nodes) {
 function renderStats(data) {
   const totals = data.totals || {};
   el.totalSessions.textContent = fmtNumber(totals.sessions);
+  if (el.totalSessionsBreakdown) {
+    el.totalSessionsBreakdown.textContent = t("stats.total.sessions.breakdown", {
+      active: fmtNumber(totals.activeSessions || 0),
+      archived: fmtNumber(totals.archivedSessions || 0),
+    });
+  }
   el.totalMessages.textContent = fmtNumber(totals.messages);
   el.totalTokens.textContent = fmtNumber(totals.tokens);
 
@@ -1768,7 +1811,7 @@ function renderSearchResults() {
   el.searchResults.innerHTML = rows
     .map(
       (row, idx) => `
-    <button class="search-hit" data-session="${escapeHtml(row.sessionKey || "")}" data-message="${
+    <button class="search-hit" data-session="${escapeHtml(row.sessionUid || row.sessionKey || "")}" data-message="${
         row.messageId ? escapeHtml(row.messageId) : ""
       }">
       <div class="hit-head">
@@ -1784,11 +1827,11 @@ function renderSearchResults() {
 
   el.searchResults.querySelectorAll(".search-hit").forEach((node) => {
     node.addEventListener("click", async () => {
-      const sessionKey = node.getAttribute("data-session");
+      const sessionUid = node.getAttribute("data-session");
       const messageId = node.getAttribute("data-message") || null;
-      if (!sessionKey) return;
+      if (!sessionUid) return;
       closeSearchModal();
-      await openSessionAndLoad(sessionKey, messageId);
+      await openSessionAndLoad(sessionUid, messageId);
     });
   });
 }
@@ -1867,6 +1910,9 @@ el.refreshBtn.addEventListener("click", () => {
 });
 el.searchInput.addEventListener("input", renderSessions);
 el.agentFilter.addEventListener("change", renderSessions);
+if (el.availabilityFilter) {
+  el.availabilityFilter.addEventListener("change", renderSessions);
+}
 el.autoRefresh.addEventListener("change", setupAutoRefresh);
 el.refreshInterval.addEventListener("change", setupAutoRefresh);
 el.exportJsonBtn.addEventListener("click", () => exportSelected("json"));

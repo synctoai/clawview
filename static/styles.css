@@ -217,6 +217,20 @@ button:hover,
   padding: 8px;
 }
 
+.session-group + .session-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e4d4bb;
+}
+
+.session-group-title {
+  margin: 2px 2px 10px;
+  color: #6d8089;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
 .session-item {
   width: 100%;
   text-align: left;
@@ -239,6 +253,12 @@ button:hover,
   border-color: #f0a054;
 }
 
+.session-item.archived {
+  background: #f8f3ea;
+  border-color: #dccfbc;
+  opacity: 0.86;
+}
+
 .session-line-top {
   display: flex;
   justify-content: space-between;
@@ -255,6 +275,14 @@ button:hover,
   font-weight: 700;
   color: #fff;
   background: var(--new);
+}
+
+.pill-archived {
+  background: #708089;
+}
+
+.session-line-top .pill + .pill {
+  margin-left: 4px;
 }
 
 .session-title {
@@ -306,6 +334,13 @@ button:hover,
   font-size: 20px;
   font-weight: 700;
   color: #1f3f45;
+}
+
+.card small {
+  display: block;
+  margin-top: 6px;
+  color: #6f8189;
+  font-size: 11px;
 }
 
 #active-range {

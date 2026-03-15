@@ -26,6 +26,11 @@
           <select id="agent-filter">
             <option value="" data-i18n="agents.all">全部 agents</option>
           </select>
+          <select id="availability-filter">
+            <option value="" data-i18n="sessions.scope.all">全部会话</option>
+            <option value="active" data-i18n="sessions.scope.active">可用会话</option>
+            <option value="archived" data-i18n="sessions.scope.archived">历史会话</option>
+          </select>
         </div>
         <div class="controls-secondary">
           <button id="global-search-open-btn" data-i18n="button.global.search">全文检索</button>
@@ -77,6 +82,7 @@
             <article class="card">
               <h3 data-i18n="stats.total.sessions">总 Sessions</h3>
               <p id="total-sessions">-</p>
+              <small id="total-sessions-breakdown">-</small>
             </article>
             <article class="card">
               <h3 data-i18n="stats.total.messages">总消息数</h3>

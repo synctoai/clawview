@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
+import os
 import re
+import shutil
 import threading
 import time
 import webbrowser
@@ -12,8 +15,45 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+HISTORY_SCHEMA_VERSION = 1
+DEFAULT_HISTORY_ROOT = Path.home() / ".clawview"
+HISTORY_DIRNAME = ".clawview"
+HISTORY_SUBPATH = Path("history") / f"v{HISTORY_SCHEMA_VERSION}"
+HISTORY_ENV_KEYS = ("CLAWVIEW_HISTORY_DIR", "CLAWVIEW_BACKUP_DIR")
+HISTORY_SYNC_INTERVAL_MS = 3000
+_HISTORY_LOCK = threading.Lock()
+_HISTORY_CACHE: dict[str, Any] = {
+    "stateDir": None,
+    "historyDir": None,
+    "syncedAtMs": 0,
+    "sessions": [],
+}
+
+
+def _resolve_history_root(raw: Any) -> Path:
+    if isinstance(raw, (str, Path)) and str(raw).strip():
+        base = Path(str(raw).strip())
+    else:
+        base = DEFAULT_HISTORY_ROOT
+    return base.expanduser().resolve()
+
+
+def _resolve_history_dir(raw_root: Any) -> Path:
+    root = _resolve_history_root(raw_root)
+    # If root is already ".clawview", avoid creating nested ".clawview/.clawview".
+    if root.name == HISTORY_DIRNAME:
+        return (root / HISTORY_SUBPATH).resolve()
+    return (root / HISTORY_DIRNAME / HISTORY_SUBPATH).resolve()
+
 
 def parse_args() -> argparse.Namespace:
+    env_history = ""
+    for key in HISTORY_ENV_KEYS:
+        value = os.getenv(key)
+        if value and value.strip():
+            env_history = value.strip()
+            break
+
     parser = argparse.ArgumentParser(
         description="Visualize OpenClaw sessions in a local web UI."
     )
@@ -28,6 +68,11 @@ def parse_args() -> argparse.Namespace:
         "--open",
         action="store_true",
         help="Open browser automatically after server starts",
+    )
+    parser.add_argument(
+        "--history-root",
+        default=env_history or str(DEFAULT_HISTORY_ROOT),
+        help="History storage root directory (env: CLAWVIEW_HISTORY_DIR or CLAWVIEW_BACKUP_DIR, default: ~/.clawview)",
     )
     return parser.parse_args()
 
@@ -239,6 +284,31 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[:max_chars].rstrip() + "..."
 
 
+def _stable_hash(*parts: str) -> str:
+    h = hashlib.sha1()
+    for part in parts:
+        h.update(str(part).encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def _write_json_atomic(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(body, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_json(path: Path, fallback: Any) -> Any:
+    if not path.is_file():
+        return fallback
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return fallback
+
+
 def _make_excerpt(text: str, terms: list[str], radius: int = 140) -> str:
     body = " ".join(text.split())
     if not body:
@@ -282,7 +352,7 @@ def _infer_session_kind(session_key: str, meta_kind: Any) -> str:
     return "session"
 
 
-def _load_all_session_meta(state_dir: Path) -> list[dict[str, Any]]:
+def _load_live_session_meta(state_dir: Path) -> list[dict[str, Any]]:
     agents_dir = state_dir / "agents"
     if not agents_dir.is_dir():
         return []
@@ -318,6 +388,16 @@ def _load_all_session_meta(state_dir: Path) -> list[dict[str, Any]]:
 
             rows.append(
                 {
+                    "id": _stable_hash(
+                        str(meta.get("agentId") or agent_id).lower(),
+                        str(key),
+                        str(meta.get("sessionId") or session_path or ""),
+                    ),
+                    "uid": _stable_hash(
+                        str(meta.get("agentId") or agent_id).lower(),
+                        str(key),
+                        str(meta.get("sessionId") or session_path or ""),
+                    ),
                     "key": key,
                     "agentId": meta.get("agentId") or agent_id,
                     "updatedAt": _safe_int(meta.get("updatedAt")),
@@ -332,11 +412,283 @@ def _load_all_session_meta(state_dir: Path) -> list[dict[str, Any]]:
                     "inputTokens": _safe_optional_int(meta.get("inputTokens")),
                     "outputTokens": _safe_optional_int(meta.get("outputTokens")),
                     "totalTokens": _safe_optional_int(meta.get("totalTokens")),
+                    "active": True,
+                    "isArchived": False,
                 }
             )
 
     rows.sort(key=lambda row: row.get("updatedAt", 0), reverse=True)
     return rows
+
+
+def _history_index_path(history_dir: Path) -> Path:
+    return history_dir / "index.json"
+
+
+def _default_history_index(state_dir: Path, history_dir: Path) -> dict[str, Any]:
+    return {
+        "schemaVersion": HISTORY_SCHEMA_VERSION,
+        "stateDir": str(state_dir),
+        "historyDir": str(history_dir),
+        "updatedAtMs": 0,
+        "updatedAtIso": None,
+        "activeSlots": {},
+        "sessions": {},
+    }
+
+
+def _load_history_index(state_dir: Path, history_dir: Path) -> dict[str, Any]:
+    path = _history_index_path(history_dir)
+    base = _default_history_index(state_dir, history_dir)
+    raw = _read_json(path, {})
+    if not isinstance(raw, dict):
+        return base
+
+    version = _safe_int(raw.get("schemaVersion"), 0)
+    if version != HISTORY_SCHEMA_VERSION:
+        return base
+
+    sessions = raw.get("sessions")
+    active_slots = raw.get("activeSlots")
+    if not isinstance(sessions, dict):
+        sessions = {}
+    if not isinstance(active_slots, dict):
+        active_slots = {}
+
+    return {
+        "schemaVersion": HISTORY_SCHEMA_VERSION,
+        "stateDir": str(raw.get("stateDir") or state_dir),
+        "historyDir": str(raw.get("historyDir") or history_dir),
+        "updatedAtMs": _safe_int(raw.get("updatedAtMs")),
+        "updatedAtIso": raw.get("updatedAtIso"),
+        "activeSlots": {
+            str(slot): str(archive_id)
+            for slot, archive_id in active_slots.items()
+            if isinstance(slot, str) and isinstance(archive_id, str)
+        },
+        "sessions": {str(k): v for k, v in sessions.items() if isinstance(v, dict)},
+    }
+
+
+def _to_history_row(
+    archive_id: str, meta: dict[str, Any], index_file: Path
+) -> dict[str, Any] | None:
+    session_file = meta.get("sessionFile")
+    if session_file:
+        session_path = Path(str(session_file))
+        if not session_path.is_absolute():
+            session_path = (index_file.parent / session_path).resolve()
+    else:
+        session_path = None
+
+    updated_at = _safe_int(meta.get("updatedAt"))
+    last_seen_at = _safe_int(meta.get("lastSeenAt"))
+    sort_ts = updated_at or last_seen_at
+
+    return {
+        "id": archive_id,
+        "uid": archive_id,
+        "key": meta.get("key"),
+        "agentId": meta.get("agentId") or "unknown",
+        "updatedAt": updated_at,
+        "sortAt": sort_ts,
+        "sessionId": meta.get("sessionId"),
+        "kind": _infer_session_kind(str(meta.get("key") or ""), meta.get("kind")),
+        "model": meta.get("model"),
+        "displayName": meta.get("displayName"),
+        "channel": meta.get("channel"),
+        "target": meta.get("target"),
+        "sessionFile": str(session_path) if session_path else None,
+        "storePath": str(index_file),
+        "inputTokens": _safe_optional_int(meta.get("inputTokens")),
+        "outputTokens": _safe_optional_int(meta.get("outputTokens")),
+        "totalTokens": _safe_optional_int(meta.get("totalTokens")),
+        "active": bool(meta.get("active")),
+        "isArchived": not bool(meta.get("active")),
+    }
+
+
+def _sync_history_store(state_dir: Path, history_dir: Path) -> dict[str, Any]:
+    history_dir.mkdir(parents=True, exist_ok=True)
+    index_file = _history_index_path(history_dir)
+    index_data = _load_history_index(state_dir, history_dir)
+    active_slots = dict(index_data.get("activeSlots") or {})
+    history_sessions = dict(index_data.get("sessions") or {})
+
+    now_ms = int(time.time() * 1000)
+    live_sessions = _load_live_session_meta(state_dir)
+    seen_slots: set[str] = set()
+
+    for session in live_sessions:
+        agent_id = str(session.get("agentId") or "unknown")
+        key = str(session.get("key") or "")
+        slot_id = _stable_hash(agent_id.lower(), key)
+        session_signature = str(session.get("sessionId") or "").strip()
+        if not session_signature:
+            first_event_id = _peek_first_message_event_id(str(session.get("sessionFile") or ""))
+            session_signature = f"path:{session.get('sessionFile') or ''}|first:{first_event_id}"
+        archive_id = _stable_hash(slot_id, session_signature)
+        seen_slots.add(slot_id)
+
+        prev_archive_id = active_slots.get(slot_id)
+        if prev_archive_id and prev_archive_id != archive_id:
+            prev_meta = history_sessions.get(prev_archive_id)
+            if isinstance(prev_meta, dict):
+                prev_meta["active"] = False
+                prev_meta["archivedAt"] = now_ms
+
+        active_slots[slot_id] = archive_id
+
+        archive_meta = history_sessions.get(archive_id)
+        if not isinstance(archive_meta, dict):
+            archive_meta = {
+                "id": archive_id,
+                "firstSeenAt": now_ms,
+            }
+            history_sessions[archive_id] = archive_meta
+
+        archive_dir = history_dir / "sessions" / archive_id[:2] / archive_id
+        archive_file = archive_dir / "events.jsonl"
+        source_session_file = str(session.get("sessionFile") or "")
+
+        source_size = _safe_int(archive_meta.get("sourceSize"), -1)
+        source_mtime_ns = _safe_int(archive_meta.get("sourceMtimeNs"), -1)
+        next_size = source_size
+        next_mtime_ns = source_mtime_ns
+
+        if source_session_file:
+            source_path = Path(source_session_file)
+            if source_path.is_file():
+                try:
+                    stat = source_path.stat()
+                    next_size = _safe_int(stat.st_size, source_size)
+                    next_mtime_ns = _safe_int(
+                        getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000)),
+                        source_mtime_ns,
+                    )
+                except OSError:
+                    next_size = source_size
+                    next_mtime_ns = source_mtime_ns
+
+                source_changed = (
+                    (next_size != source_size)
+                    or (next_mtime_ns != source_mtime_ns)
+                    or (not archive_file.is_file())
+                )
+                if source_changed:
+                    archive_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.copyfile(source_path, archive_file)
+                    except OSError:
+                        pass
+
+        archive_meta.update(
+            {
+                "id": archive_id,
+                "slotId": slot_id,
+                "signature": session_signature,
+                "key": session.get("key"),
+                "agentId": session.get("agentId"),
+                "updatedAt": _safe_int(session.get("updatedAt")),
+                "sessionId": session.get("sessionId"),
+                "kind": session.get("kind"),
+                "model": session.get("model"),
+                "displayName": session.get("displayName"),
+                "channel": session.get("channel"),
+                "target": session.get("target"),
+                "sessionFile": str(archive_file) if archive_file.is_file() else None,
+                "sourceSessionFile": source_session_file or None,
+                "sourceSize": next_size,
+                "sourceMtimeNs": next_mtime_ns,
+                "inputTokens": _safe_optional_int(session.get("inputTokens")),
+                "outputTokens": _safe_optional_int(session.get("outputTokens")),
+                "totalTokens": _safe_optional_int(session.get("totalTokens")),
+                "active": True,
+                "lastSeenAt": now_ms,
+                "archivedAt": None,
+            }
+        )
+
+    for slot_id, archive_id in list(active_slots.items()):
+        if slot_id in seen_slots:
+            continue
+        active_slots.pop(slot_id, None)
+        stale = history_sessions.get(archive_id)
+        if isinstance(stale, dict):
+            stale["active"] = False
+            if not stale.get("archivedAt"):
+                stale["archivedAt"] = now_ms
+
+    active_ids = set(active_slots.values())
+    for archive_id, meta in history_sessions.items():
+        if not isinstance(meta, dict):
+            continue
+        is_active = archive_id in active_ids
+        meta["active"] = is_active
+        if is_active:
+            meta["archivedAt"] = None
+        elif not meta.get("archivedAt"):
+            meta["archivedAt"] = now_ms
+
+    payload = {
+        "schemaVersion": HISTORY_SCHEMA_VERSION,
+        "stateDir": str(state_dir),
+        "historyDir": str(history_dir),
+        "updatedAtMs": now_ms,
+        "updatedAtIso": _iso_from_ms(now_ms),
+        "activeSlots": active_slots,
+        "sessions": history_sessions,
+    }
+    _write_json_atomic(index_file, payload)
+    return payload
+
+
+def _load_all_session_meta(state_dir: Path, history_dir: Path) -> list[dict[str, Any]]:
+    state_key = str(state_dir.resolve())
+    history_key = str(history_dir.resolve())
+    now_ms = int(time.time() * 1000)
+
+    with _HISTORY_LOCK:
+        cached_state = str(_HISTORY_CACHE.get("stateDir") or "")
+        cached_history = str(_HISTORY_CACHE.get("historyDir") or "")
+        cached_at = _safe_int(_HISTORY_CACHE.get("syncedAtMs"), 0)
+        cached_sessions = _HISTORY_CACHE.get("sessions")
+        if (
+            cached_state == state_key
+            and cached_history == history_key
+            and (now_ms - cached_at) < HISTORY_SYNC_INTERVAL_MS
+            and isinstance(cached_sessions, list)
+        ):
+            return cached_sessions
+
+        rows: list[dict[str, Any]] = []
+        try:
+            payload = _sync_history_store(state_dir, history_dir)
+            index_file = _history_index_path(history_dir)
+            sessions_map = payload.get("sessions") if isinstance(payload, dict) else {}
+            if isinstance(sessions_map, dict):
+                for archive_id, meta in sessions_map.items():
+                    if not isinstance(meta, dict):
+                        continue
+                    row = _to_history_row(str(archive_id), meta, index_file)
+                    if row:
+                        rows.append(row)
+        except OSError as exc:
+            print(f"[clawview] history sync failed: {exc}")
+            rows = _load_live_session_meta(state_dir)
+        except json.JSONDecodeError as exc:
+            print(f"[clawview] history sync failed: {exc}")
+            rows = _load_live_session_meta(state_dir)
+
+        rows.sort(
+            key=lambda row: _safe_int(row.get("sortAt") or row.get("updatedAt"), 0),
+            reverse=True,
+        )
+        _HISTORY_CACHE["stateDir"] = state_key
+        _HISTORY_CACHE["historyDir"] = history_key
+        _HISTORY_CACHE["syncedAtMs"] = now_ms
+        _HISTORY_CACHE["sessions"] = rows
+        return rows
 
 
 def _iter_message_events(session_file: str | None):
@@ -390,6 +742,33 @@ def _load_session_messages(session_file: str | None) -> list[dict[str, Any]]:
         )
 
     return messages
+
+
+def _peek_first_message_event_id(session_file: str | None) -> str:
+    if not session_file:
+        return ""
+    path = Path(session_file)
+    if not path.is_file():
+        return ""
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for raw_line in f:
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                try:
+                    event = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") != "message":
+                    continue
+                raw_id = event.get("id")
+                if raw_id is None:
+                    return ""
+                return str(raw_id)
+    except OSError:
+        return ""
+    return ""
 
 
 def _token_delta_from_usage(usage: Any) -> int:
@@ -539,6 +918,7 @@ def _compute_stats(state_dir: Path, sessions: list[dict[str, Any]]) -> dict[str,
                             bucket.append(
                                 {
                                     "sessionKey": session_key,
+                                    "sessionUid": session.get("uid"),
                                     "messageId": event.get("id"),
                                     "timestampMs": ts_ms,
                                     "timestampIso": _iso_from_ms(ts_ms),
@@ -605,11 +985,15 @@ def _compute_stats(state_dir: Path, sessions: list[dict[str, Any]]) -> dict[str,
 
     total_messages = sum(row["messages"] for row in by_agent_rows)
     total_tokens = sum(row["tokens"] for row in by_agent_rows)
+    active_sessions = sum(1 for s in sessions if bool(s.get("active")))
+    archived_sessions = max(0, len(sessions) - active_sessions)
 
     return {
         "generatedAt": datetime.now(tz=timezone.utc).isoformat(),
         "totals": {
             "sessions": len(sessions),
+            "activeSessions": active_sessions,
+            "archivedSessions": archived_sessions,
             "agents": len(by_agent_rows),
             "messages": total_messages,
             "tokens": total_tokens,
@@ -653,6 +1037,7 @@ def _search_messages(
             rows.append(
                 {
                     "sessionKey": session_key,
+                    "sessionUid": session.get("uid"),
                     "agentId": agent_id,
                     "sessionId": session.get("sessionId"),
                     "messageId": event.get("id"),
@@ -692,6 +1077,7 @@ def _recent_messages(
             rows.append(
                 {
                     "sessionKey": session_key,
+                    "sessionUid": session.get("uid"),
                     "agentId": agent_id,
                     "sessionId": session.get("sessionId"),
                     "messageId": event.get("id"),
@@ -751,6 +1137,8 @@ def _to_export_markdown(session: dict[str, Any], messages: list[dict[str, Any]])
 
 class ClawViewHandler(SimpleHTTPRequestHandler):
     state_dir: Path = Path.home() / ".openclaw"
+    history_root: Path = DEFAULT_HISTORY_ROOT
+    history_dir: Path = _resolve_history_dir(DEFAULT_HISTORY_ROOT)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         static_dir = Path(__file__).resolve().parent / "static"
@@ -782,21 +1170,49 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _find_session(self, sessions: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
-        return next((s for s in sessions if s.get("key") == key), None)
+    def _find_session(
+        self,
+        sessions: list[dict[str, Any]],
+        key: str | None = None,
+        session_uid: str | None = None,
+    ) -> dict[str, Any] | None:
+        if session_uid:
+            return next(
+                (
+                    s
+                    for s in sessions
+                    if str(s.get("uid") or s.get("id") or "") == str(session_uid)
+                ),
+                None,
+            )
+        if key:
+            return next((s for s in sessions if s.get("key") == key), None)
+        return None
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
 
         if parsed.path == "/api/health":
-            self._send_json({"ok": True, "stateDir": str(self.state_dir)})
+            self._send_json(
+                {
+                    "ok": True,
+                    "stateDir": str(self.state_dir),
+                    "historyRoot": str(self.history_root),
+                    "historyDir": str(self.history_dir),
+                }
+            )
             return
 
         if parsed.path == "/api/sessions":
-            sessions = _load_all_session_meta(self.state_dir)
+            sessions = _load_all_session_meta(self.state_dir, self.history_dir)
+            active_count = sum(1 for s in sessions if bool(s.get("active")))
             payload = {
                 "stateDir": str(self.state_dir),
+                "historyRoot": str(self.history_root),
+                "historyDir": str(self.history_dir),
                 "count": len(sessions),
+                "activeCount": active_count,
+                "archivedCount": max(0, len(sessions) - active_count),
                 "sessions": [
                     {
                         **session,
@@ -809,7 +1225,7 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/stats":
-            sessions = _load_all_session_meta(self.state_dir)
+            sessions = _load_all_session_meta(self.state_dir, self.history_dir)
             self._send_json(_compute_stats(self.state_dir, sessions))
             return
 
@@ -829,7 +1245,7 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
                     status=400,
                 )
                 return
-            sessions = _load_all_session_meta(self.state_dir)
+            sessions = _load_all_session_meta(self.state_dir, self.history_dir)
             self._send_json(_search_messages(sessions, q, limit))
             return
 
@@ -843,7 +1259,7 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
             else:
                 since_ms = int(time.time() * 1000) - minutes * 60 * 1000
 
-            sessions = _load_all_session_meta(self.state_dir)
+            sessions = _load_all_session_meta(self.state_dir, self.history_dir)
             payload = _recent_messages(sessions, since_ms, limit)
             payload["minutes"] = minutes
             self._send_json(payload)
@@ -852,14 +1268,16 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/session":
             query = parse_qs(parsed.query)
             key = (query.get("key") or [""])[0]
-            if not key:
-                self._send_json({"error": "Missing query parameter: key"}, status=400)
+            session_uid = (query.get("id") or [""])[0]
+            if not key and not session_uid:
+                self._send_json({"error": "Missing query parameter: id or key"}, status=400)
                 return
 
-            sessions = _load_all_session_meta(self.state_dir)
-            selected = self._find_session(sessions, key)
+            sessions = _load_all_session_meta(self.state_dir, self.history_dir)
+            selected = self._find_session(sessions, key=key, session_uid=session_uid)
             if not selected:
-                self._send_json({"error": f"Session not found: {key}"}, status=404)
+                selector = session_uid or key
+                self._send_json({"error": f"Session not found: {selector}"}, status=404)
                 return
 
             messages = _load_session_messages(selected.get("sessionFile"))
@@ -883,15 +1301,17 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/session/export":
             query = parse_qs(parsed.query)
             key = (query.get("key") or [""])[0]
+            session_uid = (query.get("id") or [""])[0]
             fmt = ((query.get("format") or ["json"])[0] or "json").lower()
-            if not key:
-                self._send_json({"error": "Missing query parameter: key"}, status=400)
+            if not key and not session_uid:
+                self._send_json({"error": "Missing query parameter: id or key"}, status=400)
                 return
 
-            sessions = _load_all_session_meta(self.state_dir)
-            selected = self._find_session(sessions, key)
+            sessions = _load_all_session_meta(self.state_dir, self.history_dir)
+            selected = self._find_session(sessions, key=key, session_uid=session_uid)
             if not selected:
-                self._send_json({"error": f"Session not found: {key}"}, status=404)
+                selector = session_uid or key
+                self._send_json({"error": f"Session not found: {selector}"}, status=404)
                 return
 
             messages = _load_session_messages(selected.get("sessionFile"))
@@ -904,7 +1324,8 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
                 "messages": messages,
             }
 
-            safe_key = re.sub(r"[^A-Za-z0-9._-]+", "_", key)
+            export_key = str(selected.get("uid") or selected.get("id") or key or "session")
+            safe_key = re.sub(r"[^A-Za-z0-9._-]+", "_", export_key)
             if fmt == "md":
                 md = _to_export_markdown(selected, messages)
                 self._send_text(
@@ -933,11 +1354,16 @@ class ClawViewHandler(SimpleHTTPRequestHandler):
 def main() -> None:
     args = parse_args()
     state_dir = Path(args.state_dir).expanduser().resolve()
+    history_root = _resolve_history_root(args.history_root)
+    history_dir = _resolve_history_dir(history_root)
     ClawViewHandler.state_dir = state_dir
+    ClawViewHandler.history_root = history_root
+    ClawViewHandler.history_dir = history_dir
 
     server = ThreadingHTTPServer((args.host, args.port), ClawViewHandler)
     url = f"http://{args.host}:{args.port}"
     print(f"[clawview] state dir: {state_dir}")
+    print(f"[clawview] history  : {history_dir}")
     print(f"[clawview] server    : {url}")
     print("[clawview] press Ctrl+C to stop")
 
